@@ -24,6 +24,7 @@ setup(
     entry_points={
         'console_scripts': [
             'inference_node_exec = tvarometr_inference.inference_node:main',
+            'drawing_node_exec = tvarometr_inference.drawing_node:main',
         ],
     },
 )
