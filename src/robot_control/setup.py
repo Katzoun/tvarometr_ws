@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 import os
 from glob import glob
 
-package_name = 'tvarometr_robot_control'
+package_name = 'robot_control'
 
 setup(
     name=package_name,
@@ -22,7 +22,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'robot_controller_node_exec = tvarometr_robot_control.robot_controller_node:main',
+            'robot_controller_node_exec = robot_control.robot_controller_node:main',
         ],
     },
 )

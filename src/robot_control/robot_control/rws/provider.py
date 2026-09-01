@@ -3,7 +3,7 @@ project's intranodes_pkg/robot_controller_provider.py."""
 
 import requests
 from requests.auth import HTTPBasicAuth
-from tvarometr_robot_control.exceptions import RWSException
+from robot_control.exceptions import RWSException
 requests.packages.urllib3.disable_warnings(
     requests.packages.urllib3.exceptions.InsecureRequestWarning
 )

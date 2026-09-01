@@ -19,12 +19,12 @@ from rclpy.lifecycle import Node as LifecycleNode, State, TransitionCallbackRetu
 from geometry_msgs.msg import PoseStamped
 from sensor_msgs.msg import JointState
 
-from tvarometr_robot_control_msgs.action import ExecutePoseArray, ExecuteJointArray
-from tvarometr_robot_control_msgs.srv import RobotRequestSrv
+from robot_control_msgs.action import ExecutePoseArray, ExecuteJointArray
+from robot_control_msgs.srv import RobotRequestSrv
 
-from tvarometr_robot_control.constants import RobotControllerConstants as RCC
-from tvarometr_robot_control.rws.interface import RWSInterface
-from tvarometr_robot_control.rws.simulated import SimulatedRWS
+from robot_control.constants import RobotControllerConstants as RCC
+from robot_control.rws.interface import RWSInterface
+from robot_control.rws.simulated import SimulatedRWS
 
 NODE_NAME = "robot_controller"
 

@@ -1,10 +1,10 @@
 
 import time
-from tvarometr_robot_control.exceptions import RWSException
-from tvarometr_robot_control.constants import RobotControllerConstants
+from robot_control.exceptions import RWSException
+from robot_control.constants import RobotControllerConstants
 
 import json
-from tvarometr_robot_control.rws.provider import RWSClient
+from robot_control.rws.provider import RWSClient
 
 
 class RWSInterface(RWSClient):

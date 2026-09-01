@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>tvarometr_robot_control</name>
+  <name>robot_control</name>
   <version>0.0.0</version>
   <description>ABB robot controller driver speaking Robot Web Services. Self
   contained: it needs rclpy and its own message package, nothing else from this
@@ -12,7 +12,7 @@
   <exec_depend>rclpy</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
-  <exec_depend>tvarometr_robot_control_msgs</exec_depend>
+  <exec_depend>robot_control_msgs</exec_depend>
   <exec_depend>python3-requests</exec_depend>
 
   <test_depend>ament_copyright</test_depend>

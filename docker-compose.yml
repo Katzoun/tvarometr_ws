@@ -76,7 +76,7 @@ services:
     command:
       - ros2
       - launch
-      - tvarometr_robot_control
+      - robot_control
       - robot_control.launch.py
       - backend:=${ROBOT_BACKEND:-sim}
       - robot_ip:=${ROBOT_IP:-192.168.0.37}

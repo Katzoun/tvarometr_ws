@@ -31,7 +31,7 @@ def generate_launch_description():
     ]
 
     robot_controller_node = Node(
-        package='tvarometr_robot_control',
+        package='robot_control',
         executable='robot_controller_node_exec',
         name='robot_controller',
         output='screen',

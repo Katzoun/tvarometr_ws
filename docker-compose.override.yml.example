@@ -30,8 +30,8 @@ services:
     # an interactive shell - its output lands in that terminal and Ctrl+C stops
     # it, the way it behaves outside a container.
     #   docker compose exec control bash
-    #   ros2 launch tvarometr_robot_control robot_control.launch.py backend:=sim
+    #   ros2 launch robot_control robot_control.launch.py backend:=sim
     command: sleep infinity
     volumes:
-      - ./src/tvarometr_robot_control:/workspace/src/tvarometr_robot_control
-      - ./src/tvarometr_robot_control_msgs:/workspace/src/tvarometr_robot_control_msgs
+      - ./src/robot_control:/workspace/src/robot_control
+      - ./src/robot_control_msgs:/workspace/src/robot_control_msgs
