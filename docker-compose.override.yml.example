@@ -1,0 +1,27 @@
+# Development override - copy to docker-compose.override.yml and compose picks
+# it up automatically. It is git-ignored, so it never follows you onto the
+# machine that runs the actual events, where the image has to stand on its own.
+#
+# Mounts the workspace source over the copy baked into the image, so you can
+# edit nodes on the host and rebuild inside the running container instead of
+# rebuilding the whole image (seconds instead of minutes):
+#
+#   docker compose exec vision bash -lc \
+#     "cd /workspace && colcon build --packages-select camera"
+#   docker compose restart vision
+#
+# colcon copies the sources into install/ rather than symlinking them, so the
+# build step is needed even for a one-line Python change - but it only takes a
+# second or two, and nothing gets re-downloaded.
+#
+# The model weights live under the mounted path, so `git lfs pull` has to have
+# been run on the host or they show up inside as LFS pointer files.
+
+services:
+  vision:
+    volumes:
+      - ./src/camera:/workspace/src/camera
+
+  control:
+    volumes:
+      - ./src/master_pkg:/workspace/src/master_pkg

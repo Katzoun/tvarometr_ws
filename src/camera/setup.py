@@ -14,6 +14,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         # Include launch files
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
+        (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -25,7 +26,6 @@ setup(
     entry_points={
         'console_scripts': [
             "inference_node_exec = camera.AgeGenderEmotionPrediction.face_attributes_node:main",
-            "camera_node_exec = camera.camera_controller:main",
         ],
     },
 )

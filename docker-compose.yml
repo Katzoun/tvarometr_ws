@@ -28,10 +28,6 @@ services:
       RMW_IMPLEMENTATION: rmw_fastrtps_cpp
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
-      # Set this to forward the preview window to the host's X server, e.g. :0
-      DISPLAY: ${DISPLAY:-}
-    volumes:
-      - /tmp/.X11-unix:/tmp/.X11-unix:rw
     devices:
       # The /dev/null default lets the stack come up on a box with no webcam: the
       # camera node fails, everything else works. Set the real path in .env.
@@ -49,6 +45,7 @@ services:
       - camera
       - vision.launch.py
       - device:=${INFERENCE_DEVICE:-cuda:0}
+      - use_camera:=${USE_CAMERA:-true}
 
   control:
     build:

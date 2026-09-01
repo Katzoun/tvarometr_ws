@@ -2,6 +2,7 @@
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from std_msgs.msg import String
 from sensor_msgs.msg import Image
 
@@ -71,7 +72,8 @@ class AgeGenderEmotionNode(Node):
         self.declare_parameter('mivolo_path', default_mivolo_path)
         self.declare_parameter('resemotenet_path', default_resemotenet_path)
         self.declare_parameter('device', 'cpu')  # Bezpečnější výchozí hodnota
-        self.declare_parameter('input_image_topic', '/input_image')
+        self.declare_parameter('image_topic', '/image_raw')
+        self.declare_parameter('trigger_topic', '/start_inference')
         self.declare_parameter('output_json_topic', '/face_attributes')
 
         # Získání a validace device parametru
@@ -102,20 +104,32 @@ class AgeGenderEmotionNode(Node):
         self.mivolo_path = self.get_parameter('mivolo_path').get_parameter_value().string_value
         self.resemotenet_path = self.get_parameter('resemotenet_path').get_parameter_value().string_value
 
-        self.input_image_topic = self.get_parameter('input_image_topic').get_parameter_value().string_value
+        self.image_topic = self.get_parameter('image_topic').get_parameter_value().string_value
+        self.trigger_topic = self.get_parameter('trigger_topic').get_parameter_value().string_value
         self.output_json_topic = self.get_parameter('output_json_topic').get_parameter_value().string_value
 
         self.publisher_ = self.create_publisher(String, self.output_json_topic, 10)
-        self.subscription = self.create_subscription(
-            Image,
-            self.input_image_topic,
-            self.image_callback,
-            10)
+
+        # The camera driver streams continuously and we only ever care about the
+        # newest frame, so keep a depth of 1 and match the sensor-data QoS the
+        # driver publishes with.
+        image_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+        )
+        self._latest_frame = None
+        self.image_subscription = self.create_subscription(
+            Image, self.image_topic, self.image_callback, image_qos)
+        self.trigger_subscription = self.create_subscription(
+            String, self.trigger_topic, self.trigger_callback, 10)
+
         self.bridge = CvBridge()
 
         self._load_models()
 
-        self.get_logger().info(f"Node ready, waiting for images on {self.input_image_topic}")
+        self.get_logger().info(
+            f"Node ready, streaming from {self.image_topic}, waiting for a trigger on {self.trigger_topic}")
 
     def _load_models(self):
         self.get_logger().info("Loading models...")
@@ -132,8 +146,19 @@ class AgeGenderEmotionNode(Node):
         self.get_logger().info("ResEmoteNet model loaded successfully")
 
     def image_callback(self, msg):
+        self._latest_frame = msg
+
+    def trigger_callback(self, msg):
+        self.get_logger().info("Inference triggered")
+
+        frame = self._latest_frame
+        if frame is None:
+            self.get_logger().error(
+                f"No frame received on {self.image_topic} yet - is the camera driver running?")
+            return
+
         try:
-            img = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            img = self.bridge.imgmsg_to_cv2(frame, desired_encoding='bgr8')
         except Exception as e:
             self.get_logger().error(f"Error converting image: {e}")
             return
