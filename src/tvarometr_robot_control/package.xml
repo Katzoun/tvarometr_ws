@@ -3,15 +3,16 @@
 <package format="3">
   <name>tvarometr_robot_control</name>
   <version>0.0.0</version>
-  <description>ABB robot controller node speaking Robot Web Services</description>
+  <description>ABB robot controller driver speaking Robot Web Services. Self
+  contained: it needs rclpy and its own message package, nothing else from this
+  workspace.</description>
   <maintainer email="tomas.janousek02@gmail.com">Tomas Janousek</maintainer>
   <license>MIT</license>
 
   <exec_depend>rclpy</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
-  <exec_depend>tvarometr_interfaces</exec_depend>
-  <exec_depend>tvarometr_core</exec_depend>
+  <exec_depend>tvarometr_robot_control_msgs</exec_depend>
   <exec_depend>python3-requests</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
 

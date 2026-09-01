@@ -1,4 +1,4 @@
-"""Base class for tvarometr nodes.
+"""Base class for the nodes in this package.
 
 Built on the ROS 2 managed-node lifecycle, so `ros2 lifecycle`, launch's
 LifecycleNode actions and any off-the-shelf lifecycle manager work against these
@@ -16,11 +16,11 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.client import Client
 from rclpy.lifecycle import Node as LifecycleNode
 
-from tvarometr_core.constants import CALL_TIMEOUT_SEC
-from tvarometr_core.exceptions import NodeExceptionRecoverable, ServiceCallException
+from tvarometr_robot_control.constants import CALL_TIMEOUT_SEC
+from tvarometr_robot_control.exceptions import NodeExceptionRecoverable, ServiceCallException
 
 
-class TvarometrNode(LifecycleNode):
+class ManagedNode(LifecycleNode):
     """Managed node with a couple of shared conveniences.
 
     Subclasses implement the lifecycle hooks they care about - on_configure,

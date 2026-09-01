@@ -1,7 +1,7 @@
 # Same as ExecutePoseArray but in joint space (MoveAbsJ/MoveAbsL).
 string motion_command
 string speed
-tvarometr_interfaces/RobotJoints[] waypoints
+tvarometr_robot_control_msgs/RobotJoints[] waypoints
 ---
 bool success
 string message

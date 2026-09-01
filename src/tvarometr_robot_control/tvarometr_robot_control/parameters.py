@@ -12,6 +12,7 @@ import os
 
 @dataclass(frozen=True)
 class RobotParametersKeys:
+    BACKEND = 'connection.backend'
     IP_ADDRESS = 'connection.ip_address'
     PORT = 'connection.port'
     USERNAME = 'connection.username'
@@ -28,6 +29,9 @@ class RobotParametersKeys:
 class RobotParameters:
     # Connection. The launch file overrides these from .env; the values here are
     # what the physical controller in the lab uses.
+    # 'rws' talks to a real controller, 'sim' keeps everything in process so the
+    # pipeline can be exercised without a robot.
+    backend: str = 'rws'
     ip_address: str = '192.168.0.37'
     port: int = 443
     username: str = 'Admin'
@@ -46,7 +50,13 @@ class RobotParameters:
     def to_ros_params(self) -> List[Tuple[str, Any, ParameterDescriptor]]:
         """Convert to ROS2 parameter list with descriptors for declare_parameters"""
         return [
-            
+
+            (RobotParametersKeys.BACKEND, self.backend, ParameterDescriptor(
+                description="'rws' for a real controller, 'sim' for the stand-in",
+                type=Parameter.Type.STRING.value,
+                read_only=False
+            )),
+
             # Connection parameters
             (RobotParametersKeys.IP_ADDRESS, self.ip_address, ParameterDescriptor(
                 description='Robot controller IP address',
@@ -105,6 +115,7 @@ class RobotParameters:
     def to_flat_dict(self) -> Dict[str, Any]:
         """Convert to flat dict keyed by RobotParametersKeys values."""
         return {
+            RobotParametersKeys.BACKEND: self.backend,
             RobotParametersKeys.IP_ADDRESS: self.ip_address,
             RobotParametersKeys.PORT: self.port,
             RobotParametersKeys.USERNAME: self.username,
@@ -121,6 +132,7 @@ class RobotParameters:
     def from_flat_dict(cls, data: Dict[str, Any]) -> 'RobotParameters':
         """Create instance from flat dict keyed by RobotParametersKeys values."""
         return cls(
+            backend=data.get(RobotParametersKeys.BACKEND, 'rws'),
             ip_address=data[RobotParametersKeys.IP_ADDRESS],
             port=data[RobotParametersKeys.PORT],
             username=data[RobotParametersKeys.USERNAME],

@@ -17,6 +17,9 @@ from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
     args = [
+        DeclareLaunchArgument(
+            'backend', default_value='rws',
+            description="'rws' for a real controller, 'sim' to run without one"),
         DeclareLaunchArgument('robot_ip', default_value='192.168.0.37'),
         DeclareLaunchArgument('robot_port', default_value='443'),
         DeclareLaunchArgument('robot_username', default_value='Admin'),
@@ -32,6 +35,7 @@ def generate_launch_description():
         name='robot_controller',
         output='screen',
         parameters=[{
+            'connection.backend': LaunchConfiguration('backend'),
             'connection.ip_address': LaunchConfiguration('robot_ip'),
             'connection.port': LaunchConfiguration('robot_port'),
             'connection.username': LaunchConfiguration('robot_username'),

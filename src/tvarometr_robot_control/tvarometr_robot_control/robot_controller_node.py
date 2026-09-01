@@ -9,22 +9,23 @@ from sensor_msgs.msg import JointState
 from geometry_msgs.msg import PoseStamped
 from rclpy.action import ActionServer, GoalResponse, CancelResponse
 from rclpy.action.server import ServerGoalHandle
-from tvarometr_interfaces.action import ExecutePoseArray, ExecuteJointArray
-from tvarometr_interfaces.msg import RobotJoints
+from tvarometr_robot_control_msgs.action import ExecutePoseArray, ExecuteJointArray
+from tvarometr_robot_control_msgs.msg import RobotJoints
 
 from rclpy.lifecycle import State, TransitionCallbackReturn
 
-from tvarometr_core.node_base import TvarometrNode
-from tvarometr_core.constants import RobotControllerConstants as RCC
-from tvarometr_core.exceptions import RWSException, NodeExceptionRecoverable
+from tvarometr_robot_control.node_base import ManagedNode
+from tvarometr_robot_control.constants import RobotControllerConstants as RCC
+from tvarometr_robot_control.exceptions import RWSException, NodeExceptionRecoverable
 
 from tvarometr_robot_control.parameters import RobotParameters, RobotParametersKeys
 from tvarometr_robot_control.rws.interface import RWSInterface
+from tvarometr_robot_control.rws.simulated import SimulatedRWS
 
-from tvarometr_interfaces.srv import RobotRequestSrv
+from tvarometr_robot_control_msgs.srv import RobotRequestSrv
 
 
-class RobotControllerNode(TvarometrNode):
+class RobotControllerNode(ManagedNode):
 
     def __init__(self):
         super().__init__(RCC.NODE_NAME)
@@ -94,6 +95,17 @@ class RobotControllerNode(TvarometrNode):
         """Open the RWS session. Timers stay off until we are activated."""
         if self.RWS is not None or self._logged_in:
             self.logger.error('Already configured, clean up first')
+            return TransitionCallbackReturn.FAILURE
+
+        backend = self.get_parameter(RobotParametersKeys.BACKEND).value
+        if backend == 'sim':
+            self.logger.warning('Using the simulated controller - no robot will move')
+            self.RWS = SimulatedRWS(logger=self.logger)
+            self.RWS.login()
+            self._logged_in = True
+            return TransitionCallbackReturn.SUCCESS
+        if backend != 'rws':
+            self.logger.error(f"Unknown backend {backend!r}, expected 'rws' or 'sim'")
             return TransitionCallbackReturn.FAILURE
 
         try:
