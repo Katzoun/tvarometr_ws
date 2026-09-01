@@ -1,6 +1,6 @@
 # Development override - copy to docker-compose.override.yml and compose picks
-# it up automatically. It is git-ignored, so it never follows you onto the
-# machine that runs the actual events, where the image has to stand on its own.
+# it up automatically. It is git-ignored, so it never follows onto the
+# machine.
 #
 # Mounts the workspace source over the copy baked into the image, so you can
 # edit nodes on the host and rebuild inside the running container instead of
@@ -21,7 +21,9 @@ services:
   vision:
     volumes:
       - ./src/camera:/workspace/src/camera
+      - ./src/tvarometr_interfaces:/workspace/src/tvarometr_interfaces
 
   control:
     volumes:
       - ./src/master_pkg:/workspace/src/master_pkg
+      - ./src/tvarometr_interfaces:/workspace/src/tvarometr_interfaces

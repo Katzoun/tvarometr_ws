@@ -1,0 +1,11 @@
+# Turns the analysis into the path the robot draws on the board.
+tvarometr_interfaces/FaceAttributes attributes
+---
+bool success
+string message
+# Pen state rides on z: z=0 is on the board, z>0 is lifted. Same convention the
+# path generator has always used.
+geometry_msgs/PoseArray path
+---
+string status
+int32 points_generated

@@ -1,0 +1,8 @@
+# Runs the detector + age/gender + emotion models over the newest camera frame.
+# No goal fields - the node always works on whatever it last received.
+---
+bool success
+string message
+tvarometr_interfaces/FaceAttributes attributes
+---
+string status
