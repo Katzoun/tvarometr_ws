@@ -160,22 +160,24 @@ class InferenceNode(Node):
         gender_cz = "muz" if gender == "male" else "zena"
 
         face_roi = img[y1:y2, x1:x2]
-        emotion = self._predict_emotion(face_roi)
+        emotion, emotion_confidence = self._predict_emotion(face_roi)
 
         nalady = {
-            "angry": "nastvany",
-            "disgusted": "znechuceny",
+            "anger": "nastvany",
+            "disgust": "znechuceny",
             "fear": "vydeseny",
-            "happy": "stastny",
-            "sad": "smutny",
-            "surprised": "prekvapeny",
-            "neutral": "neutralni"
+            "happiness": "stastny",
+            "sadness": "smutny",
+            "surprise": "prekvapeny",
+            "neutral": "neutralni",
         }
 
         result_json = json.dumps({
             "age": age,
             "gender": gender_cz,
-            "emotion": nalady.get(emotion, "neutralni")
+            "emotion": nalady.get(emotion, "neutralni"),
+            "emotion_en": emotion,
+            "emotion_confidence": round(emotion_confidence, 3),
         })
 
         msg_out = String()
@@ -183,8 +185,16 @@ class InferenceNode(Node):
         self.publisher_.publish(msg_out)
         self.get_logger().info(f"Published: {result_json}")
 
+    # Output order of our affectnet7_model.pth checkpoint. Measured, not assumed:
+    # benchmark/ scores this order at 43.6% on a balanced AffectNet val sample and
+    # confirms it is the best fitting permutation, while the order the upstream
+    # ResEmoteNet inference scripts use scores 11.1% - below chance. The
+    # architecture and preprocessing match upstream, but these weights clearly are
+    # not theirs. Re-run benchmark/score.py before touching this.
+    EMOTIONS = ['neutral', 'happiness', 'sadness', 'surprise', 'fear', 'disgust', 'anger']
+
     def _predict_emotion(self, face_roi):
-        emotions = ['Neutral', 'Happy', 'Sad', 'Surprised', 'Fear', 'Disgusted', 'Angry']
+        """Returns (label, confidence) for the face crop."""
         transform = transforms.Compose([
             transforms.Resize((64, 64)),
             transforms.Grayscale(num_output_channels=3),
@@ -200,9 +210,8 @@ class InferenceNode(Node):
             probabilities = F.softmax(outputs, dim=1)
 
         scores = probabilities.cpu().numpy().flatten()
-        max_index = np.argmax(scores)
-        emotion = emotions[max_index].lower()
-        return emotion
+        max_index = int(np.argmax(scores))
+        return self.EMOTIONS[max_index], float(scores[max_index])
 
 
 def main(args=None):
