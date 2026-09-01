@@ -14,9 +14,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/FaceAttributes.msg"
   "msg/RobotJoints.msg"
 
-  "srv/NodeStateSrv.srv"
   "srv/RobotRequestSrv.srv"
-  "srv/TriggerServiceSrv.srv"
 
   "action/ExecutePoseArray.action"
   "action/ExecuteJointArray.action"
