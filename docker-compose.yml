@@ -1,0 +1,83 @@
+# Phase 1 of the Docker/BT rebuild: the existing camera + master_pkg packages,
+# unchanged, split across a GPU vision container and a CPU control container.
+#
+# Usage:
+#   cp .env.example .env   # edit values, especially robot credentials
+#   git lfs install && git lfs pull   # required before building the vision image
+#   docker compose build
+#   docker compose up
+#
+# Keyboard control (s/r/q/e) runs separately, it needs a terminal of its own:
+#   docker exec -it tvarometr_control ros2 run master_pkg keyboard_publisher_exec
+
+services:
+  vision:
+    build:
+      context: .
+      dockerfile: docker/vision.Dockerfile
+    image: tvarometr/vision:latest
+    container_name: tvarometr_vision
+    network_mode: host
+    # Shared IPC namespace as well: Fast DDS talks over shared memory to peers on
+    # the same host, and without this each container has its own /dev/shm, so they
+    # discover each other but no messages ever arrive.
+    ipc: host
+    restart: unless-stopped
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-42}
+      RMW_IMPLEMENTATION: rmw_fastrtps_cpp
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      # Set this to forward the preview window to the host's X server, e.g. :0
+      DISPLAY: ${DISPLAY:-}
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    devices:
+      # The /dev/null default lets the stack come up on a box with no webcam: the
+      # camera node fails, everything else works. Set the real path in .env.
+      - ${CAMERA_DEVICE:-/dev/null}:/dev/video0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command:
+      - ros2
+      - launch
+      - camera
+      - vision.launch.py
+      - device:=${INFERENCE_DEVICE:-cuda:0}
+
+  control:
+    build:
+      context: .
+      dockerfile: docker/control.Dockerfile
+    image: tvarometr/control:latest
+    container_name: tvarometr_control
+    network_mode: host
+    # Shared IPC namespace as well: Fast DDS talks over shared memory to peers on
+    # the same host, and without this each container has its own /dev/shm, so they
+    # discover each other but no messages ever arrive.
+    ipc: host
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-42}
+      RMW_IMPLEMENTATION: rmw_fastrtps_cpp
+      DISPLAY: ${DISPLAY:-}
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    command:
+      - ros2
+      - launch
+      - master_pkg
+      - control.launch.py
+      - use_rws:=${USE_RWS:-false}
+      - generate_csv:=${GENERATE_CSV:-true}
+      - robot_ip:=${ROBOT_IP:-192.168.0.37}
+      - robot_port:=${ROBOT_PORT:-443}
+      - robot_username:=${ROBOT_USERNAME:-Admin}
+      - robot_password:=${ROBOT_PASSWORD:-robotics}

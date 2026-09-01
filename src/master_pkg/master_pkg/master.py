@@ -17,19 +17,6 @@ from utils.exceptions import RWSException
 import numpy as np
 import json
 
-#simulator
-#robotIP = "192.168.0.30"
-# robot_port = 80
-
-#real 
-robotIP = "192.168.0.37"
-robot_port = 443
-
-username = "Admin"
-password = "robotics"
-
-
-
 
 class MasterNode(Node):
 
@@ -52,6 +39,10 @@ class MasterNode(Node):
         # Load parameters from ROS2 parameter server
         self.declare_parameter('use_rws', self.useRWS)
         self.declare_parameter('generate_csv', self.generate_csv)
+        self.declare_parameter('robot_ip', '192.168.0.37')
+        self.declare_parameter('robot_port', 443)
+        self.declare_parameter('robot_username', 'Admin')
+        self.declare_parameter('robot_password', 'robotics')
         self.useRWS = self.get_parameter('use_rws').get_parameter_value().bool_value
         self.generate_csv = self.get_parameter('generate_csv').get_parameter_value().bool_value
 
@@ -70,7 +61,11 @@ class MasterNode(Node):
             self.clear_turtle_publisher = self.create_publisher(std_msgs.Bool, '/clear_turtle', 10)
         else:
             self.get_logger().info('Connecting to RWS...')
-            self.rws_client = RWSClient(robotIP, username, password, robot_port)
+            robot_ip = self.get_parameter('robot_ip').get_parameter_value().string_value
+            robot_port = self.get_parameter('robot_port').get_parameter_value().integer_value
+            robot_username = self.get_parameter('robot_username').get_parameter_value().string_value
+            robot_password = self.get_parameter('robot_password').get_parameter_value().string_value
+            self.rws_client = RWSClient(robot_ip, robot_username, robot_password, robot_port)
             self.rws_wrappers = RWSWrappers(self.rws_client)
         
         
