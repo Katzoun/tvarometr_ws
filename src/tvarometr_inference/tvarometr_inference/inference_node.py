@@ -13,10 +13,12 @@ import json
 import sys
 import os
 
-# Přidání src složky do cesty
 from pathlib import Path
-current_dir = Path(__file__).parent
-sys.path.insert(0, str(current_dir / "src"))
+
+# MiVOLO and ResEmoteNet are vendored as-is and import themselves absolutely
+# (from mivolo.model import ...), so their directory goes on the path instead of
+# rewriting third-party code.
+sys.path.insert(0, str(Path(__file__).parent / "vendor"))
 
 from mivolo.model.yolo_detector import Detector
 from mivolo.model.mi_volo import MiVOLO
@@ -27,50 +29,21 @@ import torchvision.transforms as transforms
 from PIL import Image as PILImage
 import numpy as np
 
-class AgeGenderEmotionNode(Node):
+class InferenceNode(Node):
     def __init__(self):
-        super().__init__('age_gender_emotion_node')
+        super().__init__('inference_node')
         
-        self.get_logger().info("Initializing AgeGenderEmotionNode...")
+        self.get_logger().info("Initializing inference node...")
 
-        # Get absolute paths to models based on source directory
-        # Find the source directory containing the models
-        script_dir = Path(__file__).parent
-        self.get_logger().info(f"Script directory: {script_dir}")
-        
-        # Možné umístění modelů v pořadí preference
-        possible_model_dirs = [
-            script_dir / "models",  # Vedle skriptu
-            Path("/home/robolab2/tvarometr_ws_SOTA/src/camera/camera/AgeGenderEmotionPrediction/models"),  # Workspace source
-            Path.cwd() / "src/camera/camera/AgeGenderEmotionPrediction/models",  # Relativní od CWD
-            Path.cwd() / "models"  # Modely v aktuálním adresáři
-        ]
-        
-        models_dir = None
-        for possible_dir in possible_model_dirs:
-            if possible_dir.exists() and (possible_dir / "yolov8x_person_face.pt").exists():
-                models_dir = possible_dir.resolve()
-                self.get_logger().info(f"Found models in: {models_dir}")
-                break
-        
-        if models_dir is None:
-            self.get_logger().error("Models directory not found! Searched in:")
-            for possible_dir in possible_model_dirs:
-                self.get_logger().error(f"  - {possible_dir}")
-            raise FileNotFoundError("Models directory with required files not found!")
-        
-        default_detector_path = str(models_dir / "yolov8x_person_face.pt")
-        default_mivolo_path = str(models_dir / "model_imdb_cross_person_4.22_99.46.pth.tar")
-        default_resemotenet_path = str(models_dir / "affectnet7_model.pth")
-        
-        self.get_logger().info(f"Model paths:")
-        self.get_logger().info(f"  Detector: {default_detector_path}")
-        self.get_logger().info(f"  MiVOLO: {default_mivolo_path}")
-        self.get_logger().info(f"  ResEmoteNet: {default_resemotenet_path}")
+        # Weights live outside the source tree - they are hundreds of megabytes and
+        # have no business sitting next to the code. Each path can be overridden on
+        # its own if you want to try a single model without moving the rest.
+        self.declare_parameter('models_dir', '/opt/tvarometr/models')
+        models_dir = Path(self.get_parameter('models_dir').get_parameter_value().string_value)
 
-        self.declare_parameter('detector_path', default_detector_path)
-        self.declare_parameter('mivolo_path', default_mivolo_path)
-        self.declare_parameter('resemotenet_path', default_resemotenet_path)
+        self.declare_parameter('detector_path', str(models_dir / 'yolov8x_person_face.pt'))
+        self.declare_parameter('mivolo_path', str(models_dir / 'model_imdb_cross_person_4.22_99.46.pth.tar'))
+        self.declare_parameter('resemotenet_path', str(models_dir / 'affectnet7_model.pth'))
         self.declare_parameter('device', 'cpu')  # Bezpečnější výchozí hodnota
         self.declare_parameter('image_topic', '/image_raw')
         self.declare_parameter('trigger_topic', '/start_inference')
@@ -132,6 +105,15 @@ class AgeGenderEmotionNode(Node):
             f"Node ready, streaming from {self.image_topic}, waiting for a trigger on {self.trigger_topic}")
 
     def _load_models(self):
+        for label, path in (('detector', self.detector_path),
+                            ('MiVOLO', self.mivolo_path),
+                            ('ResEmoteNet', self.resemotenet_path)):
+            if not Path(path).is_file():
+                self.get_logger().error(
+                    f"{label} weights not found at {path} - check the models_dir "
+                    f"parameter, and that git lfs pull has been run")
+                raise FileNotFoundError(path)
+
         self.get_logger().info("Loading models...")
         self.detector = Detector(self.detector_path, self.device)
         self.get_logger().info("Detector loaded successfully")
@@ -225,7 +207,7 @@ class AgeGenderEmotionNode(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = AgeGenderEmotionNode()
+    node = InferenceNode()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

@@ -1,11 +1,11 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>camera</name>
+  <name>tvarometr_inference</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="robolab2@todo.todo">robolab2</maintainer>
-  <license>TODO: License declaration</license>
+  <description>Face detection with age, gender and emotion estimation</description>
+  <maintainer email="tomas.janousek02@gmail.com">Tomas Janousek</maintainer>
+  <license>MIT</license>
 
   <depend>rclpy</depend>
   <depend>sensor_msgs</depend>

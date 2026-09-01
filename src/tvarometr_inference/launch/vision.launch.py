@@ -16,7 +16,7 @@ from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
     default_camera_config = os.path.join(
-        get_package_share_directory('camera'), 'config', 'usb_cam.yaml')
+        get_package_share_directory('tvarometr_inference'), 'config', 'usb_cam.yaml')
 
     device_arg = DeclareLaunchArgument(
         'device',
@@ -27,6 +27,12 @@ def generate_launch_description():
         'camera_config',
         default_value=default_camera_config,
         description='YAML with usb_cam parameters (resolution, framerate, device path)'
+    )
+    models_dir_arg = DeclareLaunchArgument(
+        'models_dir',
+        default_value='/opt/tvarometr/models',
+        description='Where the network weights live. Point it at the repo models/ '
+                    'directory when running outside the container'
     )
     use_camera_arg = DeclareLaunchArgument(
         'use_camera',
@@ -46,17 +52,21 @@ def generate_launch_description():
     )
 
     inference_node = Node(
-        package='camera',
+        package='tvarometr_inference',
         executable='inference_node_exec',
         name='inference_node',
         output='screen',
-        parameters=[{'device': LaunchConfiguration('device')}],
+        parameters=[{
+            'device': LaunchConfiguration('device'),
+            'models_dir': LaunchConfiguration('models_dir'),
+        }],
         emulate_tty=True
     )
 
     return LaunchDescription([
         device_arg,
         camera_config_arg,
+        models_dir_arg,
         use_camera_arg,
         LogInfo(msg="Starting Tvarometr vision stack (usb_cam + inference)..."),
         camera_node,

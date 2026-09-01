@@ -7,21 +7,23 @@
 # rebuilding the whole image (seconds instead of minutes):
 #
 #   docker compose exec vision bash -lc \
-#     "cd /workspace && colcon build --packages-select camera"
+#     "cd /workspace && colcon build --packages-select tvarometr_inference"
 #   docker compose restart vision
 #
 # colcon copies the sources into install/ rather than symlinking them, so the
 # build step is needed even for a one-line Python change - but it only takes a
 # second or two, and nothing gets re-downloaded.
 #
-# The model weights live under the mounted path, so `git lfs pull` has to have
-# been run on the host or they show up inside as LFS pointer files.
+# `git lfs pull` has to have been run on the host, or the mounted weights show up
+# inside the container as LFS pointer files.
 
 services:
   vision:
     volumes:
-      - ./src/camera:/workspace/src/camera
+      - ./src/tvarometr_inference:/workspace/src/tvarometr_inference
       - ./src/tvarometr_interfaces:/workspace/src/tvarometr_interfaces
+      # Swap a weight file without rebuilding the 8 GB image
+      - ./models:/opt/tvarometr/models
 
   control:
     volumes:
