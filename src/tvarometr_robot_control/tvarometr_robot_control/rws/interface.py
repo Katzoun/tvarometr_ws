@@ -86,11 +86,6 @@ class RWSInterface(RWSClient):
         """Returns (The type of the robot (e.g., CRB 15000-10/1.52), http_status_code)."""
         return self.get_generic("/rw/system/robottype", "robot-type")
     
-    def get_network_info(self) -> tuple[str, int]:
-        # TODO FIX does not work
-        """Returns (The network information of the robot as JSON string, http_status_code)."""
-        return self.get_generic_json("/ctrl/network")
-
     def get_system_options(self) -> tuple[str, int]:
         """Returns (The system options of the robot as JSON string, http_status_code)."""
         return self.get_generic_json("/rw/system/options")
@@ -103,16 +98,6 @@ class RWSInterface(RWSClient):
         """Returns (The energy information of the robot as JSON string, http_status_code)."""
         return self.get_generic_json("/rw/system/energy")
     
-    def get_mechunits(self) -> tuple[str, int]:
-        # TODO FIX does not work
-        """Returns (The mechanical unit information of the robot as JSON string, http_status_code)."""
-        return self.get_generic_json("/rw/motionsystem/mechunits")
-        
-    def get_rapid_modules(self) -> tuple[str, int]:
-        # TODO FIX does not work
-        """Returns (The list of RAPID modules as JSON string, http_status_code)."""
-        return self.get_generic_json("/rw/rapid/modules")
-
     def get_leadthrough_state(self, mechunit_name = "ROB_1") -> tuple[str, int]:
         """Returns (The leadthrough state of the robot, http_status_code)."""
         return self.get_generic(f"/rw/motionsystem/mechunits/{mechunit_name}/lead-through", "status")
@@ -241,25 +226,6 @@ class RWSInterface(RWSClient):
 
         if domain:
             return self.get_generic_json(f"/rw/mastership/{domain}")
-
-
-    def get_rapid_idle(self):
-        """ Returns True if the RAPID execution is idle, False otherwise """
-
-        if not self.is_running():
-            return ("False", 200)
-
-        (data, status) = self.get_rapid_symbol(RobotControllerConstants.Symbols.CURRENT_STATE, RobotControllerConstants.Modules.MAIN)
-        if status != 200:
-            self.logger.error("Failed to get RAPID symbol for current state")
-            raise RWSException("Failed to get RAPID symbol for current state")
-        else:
-
-            if int(data) == 0: # RAPID symbol for idle state is 0
-                return ("True", 200)
-            else:
-                return ("False", 200)
-
 
 
     def motors_on(self) -> tuple[str, int]:
@@ -644,15 +610,6 @@ class RWSInterface(RWSClient):
         
         return f"[{pos},{orient},{confdata},{extax}]"
     
-    @staticmethod   
-    def pose_list_to_robtargets(pose_list) -> str:
-        """Convert a list of geometry_msgs/Pose to an ABB robtargets array string."""
-        robtargets = []
-        for pose in pose_list:
-            robtarget = RWSInterface.pose_to_robtarget(pose)
-            robtargets.append(robtarget)
-        return f"[{','.join(robtargets)}]"
-
     @staticmethod
     def pose_to_dipc_robtarget(pose) -> str:
         """Convert geometry_msgs/Pose to ABB DIPC robtarget string."""

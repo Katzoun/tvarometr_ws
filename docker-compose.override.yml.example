@@ -26,6 +26,12 @@ services:
       - ./models:/opt/tvarometr/models
 
   control:
+    # Idle instead of launching the node, so the node can be started by hand from
+    # an interactive shell - its output lands in that terminal and Ctrl+C stops
+    # it, the way it behaves outside a container.
+    #   docker compose exec control bash
+    #   ros2 launch tvarometr_robot_control robot_control.launch.py backend:=sim
+    command: sleep infinity
     volumes:
-      - ./src/master_pkg:/workspace/src/master_pkg
-      - ./src/tvarometr_interfaces:/workspace/src/tvarometr_interfaces
+      - ./src/tvarometr_robot_control:/workspace/src/tvarometr_robot_control
+      - ./src/tvarometr_robot_control_msgs:/workspace/src/tvarometr_robot_control_msgs

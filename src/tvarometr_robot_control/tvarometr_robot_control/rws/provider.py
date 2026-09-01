@@ -16,40 +16,13 @@ class RWSClient:
         self.session = requests.Session()
         self._logged_in = False
         self.timeout_sec = 2  # seconds
-        if logger is None:
-            class DefaultLogger:
-                @staticmethod
-                def info(msg):
-                    print(msg)
-
-                @staticmethod
-                def error(msg):
-                    print(f"ERROR: {msg}")
-
-            self.logger = DefaultLogger()
-        else:
-            self.logger = logger
+        self.logger = logger
 
         self.session.verify = False
         self.auth_method = HTTPBasicAuth(username, password)
         self.header_typ = {'Accept': 'application/hal+json;v=2.0', 
                        'Content-Type': 'application/x-www-form-urlencoded;v=2.0'}
         self.header_opt = {'Accept': 'application/xhtml+xml;v=2.0'}
-
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit"""
-        self.logger.info(f"RWSClient.__exit__ called - Exception: {exc_type is not None}")
-        
-        # Cleanup resources
-        self.logger.info("RWS Auto-logout triggered...")
-        self.logout()
-
-        # Log exception if any
-        if exc_type is not None:
-            self.logger.error(f"Exception in RWSClient: {exc_type.__name__}: {exc_val}")
-            
-        return False  # Propagate exception
 
 
     def login(self):

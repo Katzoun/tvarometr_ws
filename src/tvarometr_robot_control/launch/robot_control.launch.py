@@ -13,6 +13,7 @@ from launch import LaunchDescription
 from launch_ros.actions import Node
 from launch.actions import DeclareLaunchArgument, LogInfo
 from launch.substitutions import LaunchConfiguration
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -37,10 +38,11 @@ def generate_launch_description():
         parameters=[{
             'connection.backend': LaunchConfiguration('backend'),
             'connection.ip_address': LaunchConfiguration('robot_ip'),
-            'connection.port': LaunchConfiguration('robot_port'),
+            'connection.port': ParameterValue(LaunchConfiguration('robot_port'), value_type=int),
             'connection.username': LaunchConfiguration('robot_username'),
             'connection.password': LaunchConfiguration('robot_password'),
-            'utility.send_joint_states': LaunchConfiguration('send_joint_states'),
+            'utility.send_joint_states': ParameterValue(
+                LaunchConfiguration('send_joint_states'), value_type=bool),
         }],
         emulate_tty=True
     )

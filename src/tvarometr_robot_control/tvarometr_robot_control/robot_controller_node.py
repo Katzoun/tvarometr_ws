@@ -1,149 +1,162 @@
-import numpy as np
-import rclpy
-from rclpy.executors import MultiThreadedExecutor
-import inspect
+"""The RWS side of the system: a managed node that owns the robot session.
+
+It comes up unconfigured and does nothing until driven through the lifecycle.
+Configure logs in to the controller, activate starts the keepalive and joint
+state timers and opens it up for motion goals.
+"""
+
 import json
 import time
+from math import radians
 
-from sensor_msgs.msg import JointState
-from geometry_msgs.msg import PoseStamped
+import rclpy
 from rclpy.action import ActionServer, GoalResponse, CancelResponse
 from rclpy.action.server import ServerGoalHandle
+from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
+from rclpy.lifecycle import Node as LifecycleNode, State, TransitionCallbackReturn
+
+from geometry_msgs.msg import PoseStamped
+from sensor_msgs.msg import JointState
+
 from tvarometr_robot_control_msgs.action import ExecutePoseArray, ExecuteJointArray
-from tvarometr_robot_control_msgs.msg import RobotJoints
+from tvarometr_robot_control_msgs.srv import RobotRequestSrv
 
-from rclpy.lifecycle import State, TransitionCallbackReturn
-
-from tvarometr_robot_control.node_base import ManagedNode
 from tvarometr_robot_control.constants import RobotControllerConstants as RCC
-from tvarometr_robot_control.exceptions import RWSException, NodeExceptionRecoverable
-
-from tvarometr_robot_control.parameters import RobotParameters, RobotParametersKeys
 from tvarometr_robot_control.rws.interface import RWSInterface
 from tvarometr_robot_control.rws.simulated import SimulatedRWS
 
-from tvarometr_robot_control_msgs.srv import RobotRequestSrv
+NODE_NAME = "robot_controller"
 
 
-class RobotControllerNode(ManagedNode):
+class RobotControllerNode(LifecycleNode):
+
+    # Which RAPID routine runs a given motion command. The routine names
+    # themselves are parameters, so the RAPID side can keep its own naming.
+    ROUTINE_PARAM = {
+        RCC.MotionCommands.MOVE_L: 'routines.buffer_move_l',
+        RCC.MotionCommands.MOVE_J: 'routines.buffer_move_j',
+        RCC.MotionCommands.MOVE_ABS_J: 'routines.buffer_move_abs_j',
+        RCC.MotionCommands.MOVE_ABS_L: 'routines.buffer_move_abs_l',
+    }
 
     def __init__(self):
-        super().__init__(RCC.NODE_NAME)
-        # Initialize default Robot parameters
-        self.default_ros_params = RobotParameters().to_ros_params()
-
-        # RAPID routine names. Parameters rather than constants so the names can
-        # follow whatever the controller's program calls them.
-        self.declare_parameter('routines.buffer_move_l', RCC.Routines.MOVE_L)
-        self.declare_parameter('routines.buffer_move_j', RCC.Routines.MOVE_J)
-        self.declare_parameter('routines.buffer_move_abs_j', RCC.Routines.MOVE_ABS_J)
-        self.declare_parameter('routines.buffer_move_abs_l', RCC.Routines.MOVE_ABS_L)
+        super().__init__(NODE_NAME)
+        self.logger = self.get_logger()
+        self.cb_group = ReentrantCallbackGroup()
 
         self.RWS = None
         self._logged_in = False
         self.keepalive_timer = None
         self.joint_states_timer = None
-        self.egm_active = False
         # rclpy exposes no public accessor for the current lifecycle state, so
         # track it ourselves for the goal callbacks to check.
         self._active = False
 
-        # Declare ROS2 parameters
-        declared_params = self.declare_parameters(
-            namespace='',  # Empty because params already have dot notation
-            parameters=self.default_ros_params
-        )
-        self.logger.info(f"Declared {len(declared_params)} parameters")
-        
-        # Services
-        self.controller_request_service = self.create_service(RobotRequestSrv,
-        f"{RCC.NODE_NAME}/{RCC.ServiceNames.CONTROLLER_REQUEST}",
-        self.controller_request_cb, callback_group=self.cb_group)
+        self.declare_parameters('', [
+            # Connection. The launch file overrides these from .env; the values
+            # here are what the physical controller in the lab uses. Backend
+            # 'rws' talks to a real controller, 'sim' keeps everything in
+            # process so the pipeline can be exercised without a robot.
+            ('connection.backend', 'rws'),
+            ('connection.ip_address', '192.168.0.37'),
+            ('connection.port', 443),
+            ('connection.username', 'Admin'),
+            ('connection.password', 'robotics'),
 
-        # Topics
-        self.joint_states_publisher = self.create_publisher(JointState, f"{RCC.NODE_NAME}/{RCC.TopicNames.JOINT_STATES_TOPIC}", 10)
+            ('utility.send_keepalive', True),
+            ('utility.keepalive_interval', 30.0),
+            ('utility.send_joint_states', True),
+            ('utility.joint_states_hz', 10.0),
 
-        # Actions
+            # How hard to push when the RAPID buffer queue answers 500, meaning
+            # it is full and the robot has not drained it yet.
+            ('dipc.retry_max', 20),
+            ('dipc.retry_delay_s', 0.1),
 
-        self.robot_robtarget_move_action_server = ActionServer(
-            self,
-            ExecutePoseArray,
-            f"{RCC.NODE_NAME}/{RCC.ActionNames.ROBOT_ROBTARGET_MOVE_ACTION}",
+            ('routines.buffer_move_l', RCC.Routines.MOVE_L),
+            ('routines.buffer_move_j', RCC.Routines.MOVE_J),
+            ('routines.buffer_move_abs_j', RCC.Routines.MOVE_ABS_J),
+            ('routines.buffer_move_abs_l', RCC.Routines.MOVE_ABS_L),
+        ])
+
+        self.create_service(
+            RobotRequestSrv, f"{NODE_NAME}/controller_request",
+            self.controller_request_cb, callback_group=self.cb_group)
+
+        self.joint_states_publisher = self.create_publisher(
+            JointState, f"{NODE_NAME}/joint_states", 10)
+
+        ActionServer(
+            self, ExecutePoseArray, f"{NODE_NAME}/robot_robtarget_move",
             execute_callback=self.execute_pose_array_cb,
             goal_callback=self.goal_callback_pose,
             cancel_callback=self.cancel_callback,
-            callback_group=self.cb_group
-        )
+            callback_group=self.cb_group)
 
-        self.robot_jointtarget_move_action_server = ActionServer(
-            self,
-            ExecuteJointArray,
-            f"{RCC.NODE_NAME}/{RCC.ActionNames.ROBOT_JOINTTARGET_MOVE_ACTION}",
+        ActionServer(
+            self, ExecuteJointArray, f"{NODE_NAME}/robot_jointtarget_move",
             execute_callback=self.execute_joint_array_cb,
             goal_callback=self.goal_callback_joint,
             cancel_callback=self.cancel_callback,
-            callback_group=self.cb_group
-        )
+            callback_group=self.cb_group)
 
-
-
-        self.logger.info(f'{self.NODE_NAME} is unconfigured - configure it to connect to the robot')
+        self.logger.info(f'{NODE_NAME} is unconfigured - configure it to connect to the robot')
 
     # ============= LIFECYCLE =============
 
     def on_configure(self, state: State) -> TransitionCallbackReturn:
         """Open the RWS session. Timers stay off until we are activated."""
-        if self.RWS is not None or self._logged_in:
+        if self.RWS is not None:
             self.logger.error('Already configured, clean up first')
             return TransitionCallbackReturn.FAILURE
 
-        backend = self.get_parameter(RobotParametersKeys.BACKEND).value
+        backend = self.get_parameter('connection.backend').value
+        if backend not in ('rws', 'sim'):
+            self.logger.error(f"Unknown backend {backend!r}, expected 'rws' or 'sim'")
+            return TransitionCallbackReturn.FAILURE
+
         if backend == 'sim':
             self.logger.warning('Using the simulated controller - no robot will move')
             self.RWS = SimulatedRWS(logger=self.logger)
             self.RWS.login()
             self._logged_in = True
             return TransitionCallbackReturn.SUCCESS
-        if backend != 'rws':
-            self.logger.error(f"Unknown backend {backend!r}, expected 'rws' or 'sim'")
-            return TransitionCallbackReturn.FAILURE
 
         try:
             self.logger.info('Initializing RWSInterface...')
             self.RWS = RWSInterface(
-                host=self.get_parameter(RobotParametersKeys.IP_ADDRESS).value,
-                username=self.get_parameter(RobotParametersKeys.USERNAME).value,
-                password=self.get_parameter(RobotParametersKeys.PASSWORD).value,
-                port=self.get_parameter(RobotParametersKeys.PORT).value,
+                host=self.get_parameter('connection.ip_address').value,
+                username=self.get_parameter('connection.username').value,
+                password=self.get_parameter('connection.password').value,
+                port=self.get_parameter('connection.port').value,
                 logger=self.logger,
             )
-            if self.RWS.login():
-                self._logged_in = True
-                self.logger.info('Login successful')
-            else:
+            if not self.RWS.login():
                 self.logger.error('Login rejected by the controller')
                 self.RWS = None
                 return TransitionCallbackReturn.FAILURE
-        except (RWSException, Exception) as e:
+        except Exception as e:
             self.logger.error(f'Could not reach the robot: {e}')
             self.RWS = None
-            self._logged_in = False
             return TransitionCallbackReturn.FAILURE
 
+        self._logged_in = True
+        self.logger.info('Login successful')
         return TransitionCallbackReturn.SUCCESS
 
     def on_activate(self, state: State) -> TransitionCallbackReturn:
         """Start the background chatter with the controller."""
-        if self.get_parameter(RobotParametersKeys.SEND_KEEPALIVE).value:
-            period = self.get_parameter(RobotParametersKeys.KEEPALIVE_INTERVAL).value
+        if self.get_parameter('utility.send_keepalive').value:
             self.keepalive_timer = self.create_timer(
-                period, self.keepalive_callback, callback_group=self.cb_group)
+                self.get_parameter('utility.keepalive_interval').value,
+                self.keepalive_callback, callback_group=self.cb_group)
 
-        if self.get_parameter(RobotParametersKeys.SEND_JOINT_STATES).value:
-            hz = self.get_parameter(RobotParametersKeys.JOINT_STATES_HZ).value
-            period = 1.0 / hz if hz > 0 else 1.0
+        if self.get_parameter('utility.send_joint_states').value:
+            hz = self.get_parameter('utility.joint_states_hz').value
             self.joint_states_timer = self.create_timer(
-                period, self.joint_states_callback, callback_group=self.cb_group)
+                1.0 / hz if hz > 0 else 1.0,
+                self.joint_states_callback, callback_group=self.cb_group)
 
         self._active = True
         self.logger.info('Active - accepting motion goals')
@@ -171,7 +184,7 @@ class RobotControllerNode(ManagedNode):
 
     def _stop_timers(self):
         for name in ('keepalive_timer', 'joint_states_timer'):
-            timer = getattr(self, name, None)
+            timer = getattr(self, name)
             if timer is not None:
                 timer.destroy()
                 setattr(self, name, None)
@@ -179,16 +192,8 @@ class RobotControllerNode(ManagedNode):
     def _release(self):
         """Drop timers and the RWS session, tolerating a robot that is already gone."""
         self._active = False
+        self._stop_timers()
         try:
-            self._stop_timers()
-            if self.keepalive_timer is not None:
-                self.keepalive_timer.destroy()
-                self.keepalive_timer = None
-            if self.joint_states_timer is not None:
-                self.joint_states_timer.destroy()
-                self.joint_states_timer = None
-
-            
             if self.RWS is not None:
                 self.RWS.logout()
         except Exception as e:
@@ -196,236 +201,50 @@ class RobotControllerNode(ManagedNode):
         finally:
             self.RWS = None
             self._logged_in = False
-            self.keepalive_timer = None
-            self.joint_states_timer = None
 
     def keepalive_callback(self):
-        if self._logged_in:
-            self.logger.info('Sending keepalive signal...')
+        if not self._logged_in:
+            return
+        try:
+            self._logged_in = bool(self.RWS.send_keepalive())
+            if not self._logged_in:
+                self.logger.error('Keepalive rejected - the session is gone')
+        except Exception as e:
             self._logged_in = False
-            try:
-                result = self.RWS.send_keepalive()
-                if result == True:
-                    self._logged_in = True
-                    self.logger.info('Keepalive successful')
-                else:
-                    self.logger.error('Keepalive failed: No response from robot')
-
-            except Exception as e:
-                self.logger.error(f'Keepalive failed: {e}')
-        else:
-            self.logger.info('Not logged in, skipping keepalive.')
+            self.logger.error(f'Keepalive failed: {e}')
 
     def joint_states_callback(self):
-        if self._logged_in:
-            try:
-                if not self.egm_active:
-                    result_json, status_code = self.RWS.get_robot_joint_positions()
-                    if status_code != 200:
-                        self.logger.warning(f"Failed to get joint states (status={status_code}): {result_json}")
-                        return
+        if not self._logged_in:
+            return
+        try:
+            result_json, status_code = self.RWS.get_robot_joint_positions()
+            if status_code != 200:
+                self.logger.warning(f"Failed to get joint states (status={status_code}): {result_json}")
+                return
 
-                    data = json.loads(result_json)
-                    joint_names = [
-                        "Revolute 1",
-                        "Revolute 2",
-                        "Revolute 3",
-                        "Revolute 4",
-                        "Revolute 5",
-                        "Revolute 6",
-                    ]
-
-                    positions_deg = []
-                    for i in range(1, 7):
-                        key = f"rax_{i}"
-                        value = data.get(key, None)
-                        if value is None:
-                            raise ValueError(f"Missing joint value for {key}")
-                        positions_deg.append(float(value))
-
-                    msg = JointState()
-                    msg.header.stamp = self.get_clock().now().to_msg()
-                    msg.name = joint_names
-                    msg.position = [float(np.deg2rad(v)) for v in positions_deg]
-
-                    self.joint_states_publisher.publish(msg)
-
-                else: 
-                    self.logger.info('EGM active, skipping joint states retrieval to avoid conflicts.')
-            except Exception as e:
-                self.logger.error(f'Failed to get joint states: {e}')
-        else:
-            self.logger.info('Not logged in, skipping joint states retrieval.')
+            data = json.loads(result_json)
+            msg = JointState()
+            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.name = [f"Revolute {i}" for i in range(1, 7)]
+            msg.position = [radians(float(data[f"rax_{i}"])) for i in range(1, 7)]
+            self.joint_states_publisher.publish(msg)
+        except Exception as e:
+            self.logger.error(f'Failed to get joint states: {e}')
 
     # ============= ACTION SERVER CALLBACKS =============
 
-    def goal_callback_pose(self, goal_request: ExecutePoseArray.Goal) -> GoalResponse:
-        if not self._active:
-            self.logger.error('Goal rejected: node is not active')
-            return GoalResponse.REJECT
-
-        if len(goal_request.path.poses) == 0:
-            self.logger.error('Goal rejected: empty PoseArray')
-            return GoalResponse.REJECT
-
-        try:
-            if not self.RWS.is_rapid_idle():
-                self.logger.error('Goal rejected: robot is not in idle state')
-                return GoalResponse.REJECT
-        except Exception as e:
-            self.logger.error(f'Goal rejected: could not read robot state: {e}')
-            return GoalResponse.REJECT
-
-        self.logger.info(f'Goal accepted: {len(goal_request.path.poses)} poses to send via DIPC')
-        return GoalResponse.ACCEPT
-        
     def cancel_callback(self, goal_handle):
-        """Accept cancel requests."""
         self.logger.info('Cancel requested for DIPC trajectory execution')
         return CancelResponse.ACCEPT
 
-    def execute_pose_array_cb(self, goal_handle: ServerGoalHandle) -> ExecutePoseArray.Result:
-        """
-        Execute callback for the DIPC trajectory action.
-        """
-        goal: ExecutePoseArray.Goal = goal_handle.request
-
-        dipc_retry_max = self.get_parameter(RobotParametersKeys.DIPC_RETRY_MAX).value
-        dipc_retry_delay_s = self.get_parameter(RobotParametersKeys.DIPC_RETRY_DELAY_S).value
-        
-        try:
-            MC = RCC.MotionCommands
-            if goal.motion_command not in [MC.MOVE_L, MC.MOVE_J]:
-                raise ValueError(f"Unsupported motion command: {goal.motion_command}")
-
-            if goal.motion_command == MC.MOVE_L:
-                routine_name = self.get_parameter('routines.buffer_move_l').value
-            elif goal.motion_command == MC.MOVE_J:
-                routine_name = self.get_parameter('routines.buffer_move_j').value
-
-            self.RWS.set_rapid_symbol_raw(f'"{routine_name}"', RCC.Symbols.ROUTINE_NAME, RCC.Modules.RAPID)
-            time.sleep(0.1)
-            self.RWS.set_rapid_symbol_raw(goal.speed, RCC.Symbols.SPEED, RCC.Modules.USER)
-            time.sleep(0.1)
-            self.RWS.set_rapid_symbol_raw(RCC.States.EXECUTE, RCC.Symbols.CURRENT_STATE, RCC.Modules.MAIN)
-            time.sleep(0.3)
-        
-        except Exception as e:
-            error_msg = f"Error in execute_pose_array_cb: {e}"
-            self.logger.error(error_msg)
-            result = ExecutePoseArray.Result() 
-            result.success = False
-            result.message = error_msg
-            result.executed_count = 0
-            return result
-
-        feedback_msg = ExecutePoseArray.Feedback()
-        result = ExecutePoseArray.Result() 
-        
-        poses = goal_handle.request.path.poses
-        total = len(poses)
-        sent_count = 0
-        curr_pose = 0
-
-        self.logger.info(f'Starting DIPC trajectory execution with {total} poses')
-
-        try:
-            while curr_pose < total:
-                pose = poses[curr_pose]
-
-                # userdef marks the last point of the stream: 2 on the final
-                # robtarget, 1 on the rest. The RAPID side has to watch for it to
-                # know the path has ended - tvarometr's program was written
-                # against a trailing pen-up point instead, so this is one of the
-                # things to line up on the controller.
-                is_last = (curr_pose == total - 1)
-                userdef = "2" if is_last else "1"
-
-                # If a cancel has been requested, promote this point to the last point
-                if goal_handle.is_cancel_requested:
-                    userdef = "2"
-
-                robtarget_str = RWSInterface.pose_to_dipc_robtarget(pose)
-
-                retries = 0
-                while True:
-                    # If cancel arrives during retries
-                    if goal_handle.is_cancel_requested and userdef != "2":
-                        self.logger.info(f'Cancel requested during retries at pose {curr_pose}/{total}')
-                        userdef = "2"
-
-                    msg_result, status_code = self.RWS.send_dipc_message(
-                        message=robtarget_str, userdef=userdef
-                    )
-
-                    if status_code == 204:
-                        break
-
-                    if status_code == 500 and retries < dipc_retry_max:
-                        retries += 1
-                        time.sleep(dipc_retry_delay_s)
-                        continue
-
-                    error_msg = (f"DIPC send failed at pose {curr_pose+1}/{total}: "
-                                 f"(status={status_code}, retries={retries})")
-                    self.logger.error(error_msg)
-                    goal_handle.abort()
-                    result.success = False
-                    result.message = error_msg
-                    result.executed_count = sent_count
-
-                    return result
-
-                sent_count += 1
-
-                feedback_msg.current_index = curr_pose
-                feedback_msg.state = f"Sent pose {curr_pose+1}/{total}"
-                pose_stamped = PoseStamped()
-                pose_stamped.header.stamp = self.get_clock().now().to_msg()
-                pose_stamped.pose = pose
-                feedback_msg.current_pose = pose_stamped
-                goal_handle.publish_feedback(feedback_msg)
-
-                curr_pose += 1
-
-                # If cancel was requested
-                if goal_handle.is_cancel_requested:
-                    goal_handle.canceled()
-                    result.success = False
-                    result.message = f"Cancelled after sending {sent_count} pose(s)"
-                    result.executed_count = sent_count
-
-                    return result
-
-            # All poses sent successfully
-            goal_handle.succeed()
-            result.success = True
-            result.message = f"All {total} poses sent successfully"
-            result.executed_count = sent_count
-
-
-            self.logger.info(result.message)
-            return result
-
-        except Exception as e:
-            error_msg = f"Error during DIPC trajectory execution: {e}"
-            self.logger.error(error_msg)
-            goal_handle.abort()
-            result.success = False
-            result.message = error_msg
-            result.executed_count = sent_count
-
-            
-            return result
-
-    def goal_callback_joint(self, goal_request: ExecuteJointArray.Goal) -> GoalResponse:
+    def _accept_goal(self, count: int, noun: str) -> GoalResponse:
+        """Both motion actions are accepted on the same three conditions."""
         if not self._active:
             self.logger.error('Goal rejected: node is not active')
             return GoalResponse.REJECT
 
-        waypoints: list[RobotJoints] = goal_request.waypoints
-        if len(waypoints) == 0:
-            self.logger.error('Goal rejected: empty joint trajectory')
+        if count == 0:
+            self.logger.error(f'Goal rejected: no {noun}s in the goal')
             return GoalResponse.REJECT
 
         try:
@@ -436,234 +255,192 @@ class RobotControllerNode(ManagedNode):
             self.logger.error(f'Goal rejected: could not read robot state: {e}')
             return GoalResponse.REJECT
 
-        self.logger.info(f'Joint trajectory goal accepted: {len(waypoints)} waypoints')
+        self.logger.info(f'Goal accepted: {count} {noun}s to send via DIPC')
         return GoalResponse.ACCEPT
 
+    def goal_callback_pose(self, goal_request: ExecutePoseArray.Goal) -> GoalResponse:
+        return self._accept_goal(len(goal_request.path.poses), 'pose')
+
+    def goal_callback_joint(self, goal_request: ExecuteJointArray.Goal) -> GoalResponse:
+        return self._accept_goal(len(goal_request.waypoints), 'waypoint')
+
+    def execute_pose_array_cb(self, goal_handle: ServerGoalHandle) -> ExecutePoseArray.Result:
+        poses = goal_handle.request.path.poses
+        targets = [RWSInterface.pose_to_dipc_robtarget(p) for p in poses]
+
+        def feedback(index):
+            msg = ExecutePoseArray.Feedback()
+            msg.current_pose = PoseStamped()
+            msg.current_pose.header.stamp = self.get_clock().now().to_msg()
+            msg.current_pose.pose = poses[index]
+            return msg
+
+        return self._stream_to_dipc(
+            goal_handle, ExecutePoseArray.Result(), targets, feedback, 'pose')
+
     def execute_joint_array_cb(self, goal_handle: ServerGoalHandle) -> ExecuteJointArray.Result:
-        """
-        Execute callback for the joint trajectory DIPC action.
-        """
-        goal: ExecuteJointArray.Goal = goal_handle.request
+        targets = [
+            RWSInterface.joints_to_dipc_jointtarget([w.j1, w.j2, w.j3, w.j4, w.j5, w.j6])
+            for w in goal_handle.request.waypoints
+        ]
+        return self._stream_to_dipc(
+            goal_handle, ExecuteJointArray.Result(), targets,
+            lambda index: ExecuteJointArray.Feedback(), 'waypoint')
 
-        dipc_retry_max = self.get_parameter(RobotParametersKeys.DIPC_RETRY_MAX).value
-        dipc_retry_delay_s = self.get_parameter(RobotParametersKeys.DIPC_RETRY_DELAY_S).value
+    def _stream_to_dipc(self, goal_handle, result, targets, make_feedback, noun):
+        """Push a whole path into the RAPID buffer queue, one target at a time.
+
+        Both motion actions land here - they differ only in the string handed to
+        the controller and in the feedback message they publish.
+        """
+        goal = goal_handle.request
+        result.executed_count = 0
+
+        routine_param = self.ROUTINE_PARAM.get(goal.motion_command)
+        if routine_param is None:
+            return self._abort(goal_handle, result,
+                               f"Unsupported motion command: {goal.motion_command}")
 
         try:
-            waypoints: list[RobotJoints] = goal.waypoints
-
-            if goal.motion_command not in [RCC.MotionCommands.MOVE_ABS_J, RCC.MotionCommands.MOVE_ABS_L]:
-                raise ValueError(f"Unsupported motion command: {goal.motion_command}")
-
-            if goal.motion_command == RCC.MotionCommands.MOVE_ABS_J:
-                routine_name = self.get_parameter('routines.buffer_move_abs_j').value
-            elif goal.motion_command == RCC.MotionCommands.MOVE_ABS_L:
-                routine_name = self.get_parameter('routines.buffer_move_abs_l').value
-
-            self.RWS.set_rapid_symbol_raw(f'"{routine_name}"', RCC.Symbols.ROUTINE_NAME, RCC.Modules.RAPID)
-            time.sleep(0.1)
-            self.RWS.set_rapid_symbol_raw(goal.speed, RCC.Symbols.SPEED, RCC.Modules.USER)
-            time.sleep(0.1)
-            self.RWS.set_rapid_symbol_raw(RCC.States.EXECUTE, RCC.Symbols.CURRENT_STATE, RCC.Modules.MAIN)
-            time.sleep(0.3)
-
+            self._start_routine(self.get_parameter(routine_param).value, goal.speed)
         except Exception as e:
-            error_msg = f"Error in execute_joint_array_cb setup: {e}"
-            self.logger.error(error_msg)
-            result = ExecuteJointArray.Result()
-            result.success = False
-            result.message = error_msg
-            result.executed_count = 0
-            return result
+            return self._abort(goal_handle, result, f"Could not arm the RAPID routine: {e}")
 
-        feedback_msg = ExecuteJointArray.Feedback()
-        result = ExecuteJointArray.Result()
-
-        total = len(waypoints)
-        sent_count = 0
-        curr_idx = 0
-
-        self.logger.info(f'Starting DIPC joint trajectory with {total} waypoints')
+        retry_max = self.get_parameter('dipc.retry_max').value
+        retry_delay = self.get_parameter('dipc.retry_delay_s').value
+        total = len(targets)
+        self.logger.info(f'Starting DIPC trajectory execution with {total} {noun}s')
 
         try:
-            while curr_idx < total:
-                wp: RobotJoints = waypoints[curr_idx]
-                joints = [wp.j1, wp.j2, wp.j3, wp.j4, wp.j5, wp.j6]
+            for index, target in enumerate(targets):
+                # userdef marks the last point of the stream: 2 on the final
+                # target, 1 on the rest. The RAPID side has to watch for it to
+                # know the path has ended - tvarometr's program was written
+                # against a trailing pen-up point instead, so this is one of the
+                # things to line up on the controller. A cancel is delivered by
+                # promoting whatever point is in flight to the last one.
+                userdef = "2" if index == total - 1 else "1"
 
-                is_last = (curr_idx == total - 1)
-                userdef = "2" if is_last else "1"
-
-                if goal_handle.is_cancel_requested:
-                    userdef = "2"
-
-                jointtarget_str = RWSInterface.joints_to_dipc_jointtarget(joints)
-
-                retries = 0
-                while True:
-                    if goal_handle.is_cancel_requested and userdef != "2":
-                        self.logger.info(f'Cancel requested during retries at waypoint {curr_idx}/{total}')
+                for attempt in range(retry_max + 1):
+                    if goal_handle.is_cancel_requested:
                         userdef = "2"
 
-                    _, status_code = self.RWS.send_dipc_message(
-                        message=jointtarget_str, userdef=userdef
-                    )
-
+                    _, status_code = self.RWS.send_dipc_message(message=target, userdef=userdef)
                     if status_code == 204:
                         break
+                    # 500 means the queue is full - wait for the robot to drain it.
+                    if status_code != 500 or attempt == retry_max:
+                        return self._abort(
+                            goal_handle, result,
+                            f"DIPC send failed at {noun} {index+1}/{total}: "
+                            f"(status={status_code}, retries={attempt})")
+                    time.sleep(retry_delay)
 
-                    if status_code == 500 and retries < dipc_retry_max:
-                        retries += 1
-                        time.sleep(dipc_retry_delay_s)
-                        continue
+                result.executed_count = index + 1
 
-                    error_msg = (f"DIPC send failed at waypoint {curr_idx+1}/{total}: "
-                                 f"(status={status_code}, retries={retries})")
-                    self.logger.error(error_msg)
-                    goal_handle.abort()
-                    result.success = False
-                    result.message = error_msg
-                    result.executed_count = sent_count
-                    return result
-
-                sent_count += 1
-
-                feedback_msg.current_index = curr_idx
-                feedback_msg.state = f"Sent waypoint {curr_idx+1}/{total}"
-                goal_handle.publish_feedback(feedback_msg)
-
-                curr_idx += 1
+                msg = make_feedback(index)
+                msg.current_index = index
+                msg.state = f"Sent {noun} {index+1}/{total}"
+                goal_handle.publish_feedback(msg)
 
                 if goal_handle.is_cancel_requested:
                     goal_handle.canceled()
                     result.success = False
-                    result.message = f"Cancelled after sending {sent_count} waypoint(s)"
-                    result.executed_count = sent_count
+                    result.message = f"Cancelled after sending {result.executed_count} {noun}(s)"
+                    self.logger.info(result.message)
                     return result
 
             goal_handle.succeed()
             result.success = True
-            result.message = f"All {total} waypoints sent successfully"
-            result.executed_count = sent_count
+            result.message = f"All {total} {noun}s sent successfully"
             self.logger.info(result.message)
             return result
 
         except Exception as e:
-            error_msg = f"Error during joint trajectory execution: {e}"
-            self.logger.error(error_msg)
-            goal_handle.abort()
-            result.success = False
-            result.message = error_msg
-            result.executed_count = sent_count
-            return result
+            return self._abort(goal_handle, result, f"Error during DIPC execution: {e}")
 
-    def controller_request_cb(self, request: RobotRequestSrv.Request, response : RobotRequestSrv.Response):
-        """Handle GET request service call"""   
-        params: list[str] = [param for param in request.params]
-        #filter out falsy params
-        params = [p for p in params if p]
-        cmd: str = request.command
+    def _start_routine(self, routine_name: str, speed):
+        """Point the RAPID program at a routine and let it run.
 
+        The sleeps are the controller's, not ours: each symbol has to land
+        before the next one goes out, or the routine starts on stale values.
+        """
+        self.RWS.set_rapid_symbol_raw(f'"{routine_name}"', RCC.Symbols.ROUTINE_NAME, RCC.Modules.RAPID)
+        time.sleep(0.1)
+        self.RWS.set_rapid_symbol_raw(speed, RCC.Symbols.SPEED, RCC.Modules.USER)
+        time.sleep(0.1)
+        self.RWS.set_rapid_symbol_raw(RCC.States.EXECUTE, RCC.Symbols.CURRENT_STATE, RCC.Modules.MAIN)
+        time.sleep(0.3)
+
+    def _abort(self, goal_handle, result, message):
+        self.logger.error(message)
+        goal_handle.abort()
+        result.success = False
+        result.message = message
+        return result
+
+    # ============= SERVICE =============
+
+    def controller_request_cb(self, request: RobotRequestSrv.Request, response: RobotRequestSrv.Response):
+        params = [p for p in request.params if p]
+        cmd = request.command
         self.logger.info(f"Received controller_request: command='{cmd}' params={params}")
 
         try:
             response.message, response.status_code = self.robot_request(cmd, params)
             response.status = True
-
         except Exception as e:
-            error_msg = f"Error handling controller_request '{cmd}': {e}"
-            self.logger.error(error_msg)
-            response.message = error_msg
+            response.message = f"Error handling controller_request '{cmd}': {e}"
             response.status_code = -1
             response.status = False
-        
-        self.logger.info(f"Controller request response: status={response.status}  message='{response.message}'  status_code={response.status_code}")
+            self.logger.error(response.message)
 
+        self.logger.info(f"Controller request response: status={response.status}  "
+                         f"message='{response.message}'  status_code={response.status_code}")
         return response
 
     def robot_request(self, cmd: str, params: list):
+        """Call an RWS method by name.
 
-        if self._logged_in and self.RWS is not None:
-            if not hasattr(self.RWS, cmd):
-                raise NodeExceptionRecoverable(f"Method {cmd} not found")
+        The command vocabulary is whatever RWSInterface exposes, which keeps the
+        service useful for anything the orchestrator has not been taught yet.
+        """
+        if self.RWS is None or not self._logged_in:
+            raise RuntimeError('Not logged in to the robot, configure the node first')
 
-            method = getattr(self.RWS, cmd)
-            signature = inspect.signature(method)
-            # Filter out 'self' parameter
-            method_params = [p for name, p in signature.parameters.items() if name != 'self']
-            num_total_params = len(method_params)
-            # Get number of required parameters
-            num_required_params = sum(1 for p in method_params if p.default == inspect.Parameter.empty)
+        method = getattr(self.RWS, cmd, None)
+        if cmd.startswith('_') or not callable(method):
+            raise RuntimeError(f"No such robot command: {cmd}")
 
-            try:
-                if num_required_params == 0 and len(params) == 0:
-                    # No parameters expected
-                    return method()
-                elif num_required_params == len(params):
-                    # Exact match
-                    return method(*params)
-                elif len(params) <= num_total_params and len(params) >= num_required_params:
-                    # Some optional parameters can be omitted
-                    return method(*params)
-                
-                elif len(params) < num_required_params:
-                    # Fewer parameters provided than required
-                    raise NodeExceptionRecoverable(f"Not enough parameters provided: got {len(params)}, need at least {num_required_params}")
-                else:
-                    # Too many parameters, use only what's needed
-                    return method(*params[:num_total_params])
+        try:
+            return method(*params)
+        except TypeError as e:
+            raise RuntimeError(f"Wrong parameters for {cmd}: {e}") from e
 
-            except TypeError as e:
-                raise NodeExceptionRecoverable(f"Parameter mismatch calling {cmd}: {e}")
-        else:
-            raise NodeExceptionNonRecoverable("Node not initialized or not logged in to robot, reinitialize the node.")
 
 def main(args=None):
-
     rclpy.init(args=args)
-    robot_controller_node = None
-    executor = None
+    node = RobotControllerNode()
+    executor = MultiThreadedExecutor(num_threads=2)
+    executor.add_node(node)
 
     try:
-        # Initialize the Robot Controller node
-        robot_controller_node = RobotControllerNode()
-        
-        # Create multithreaded executor with 2 threads
-        executor = MultiThreadedExecutor(num_threads=2)
-        executor.add_node(robot_controller_node)
-        
-        # Spin the executor
         executor.spin()
-        
     except KeyboardInterrupt:
-        if robot_controller_node:
-            robot_controller_node.logger.info("Keyboard interrupt received")
-            
-    except Exception as e:
-        if robot_controller_node:
-            robot_controller_node.logger.error(f"Unexpected error: {e}")
-        else:
-            print(f'Error during node initialization: {e}')
-            
+        node.logger.info("Keyboard interrupt received")
     finally:
-        # Shutdown executor (stops spinning and waits for callbacks to finish)
-        if executor:
-            executor.shutdown(timeout_sec=5)
-        
-        # Close the RWS session however we got here
-        if robot_controller_node:
-            try:
-                robot_controller_node._release()
-            except Exception as e:
-                robot_controller_node.logger.error(f"Error during cleanup: {e}")
-        
-        # Destroy the node
-        if robot_controller_node:
-            robot_controller_node.destroy_node()
-        
-        # Shutdown rclpy
+        # Ctrl+C reaches the whole process group, and ros2 launch forwards it on
+        # top of that, so a second interrupt lands while we are still tidying up.
+        # Without this it turns a clean shutdown into a traceback.
         try:
-            rclpy.shutdown()
-        except Exception:
-            pass  # rclpy may already be shut down
+            executor.shutdown(timeout_sec=5)
+            # Close the RWS session however we got here.
+            node._release()
+            node.destroy_node()
+        except KeyboardInterrupt:
+            pass
+        rclpy.try_shutdown()
+
 
 if __name__ == '__main__':
     main()
