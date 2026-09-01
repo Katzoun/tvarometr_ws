@@ -1,6 +1,0 @@
-# Rebuildable with fetch_subset.py from the committed manifest, and of uncertain
-# licence - AffectNet images are not ours to redistribute.
-data/*/images/
-
-# Downloaded from HuggingFace, hundreds of megabytes each.
-weights/
