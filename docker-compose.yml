@@ -1,10 +1,13 @@
 # The system split across a GPU vision container and a CPU control container.
 #
 # Usage:
-#   cp .env.example .env   # edit values, especially robot credentials
 #   git lfs install && git lfs pull   # required before building the vision image
 #   docker compose build
 #   docker compose up
+#
+# To work on the robot driver alone, open the repo in the dev container
+# instead (.devcontainer/devcontainer.json). It builds this same control image
+# and leaves the vision service out of it.
 #
 # The control container runs the robot driver only. It is a managed node and
 # comes up unconfigured, so drive it through the lifecycle once the stack is up:
@@ -73,13 +76,12 @@ services:
       # under docker - logs then sit in the buffer instead of showing up in
       # `docker compose logs`.
       PYTHONUNBUFFERED: "1"
+    # No connection arguments: the robot's settings live in
+    # src/robot_control/config/robot_control.yaml, which is baked into the
+    # image, not in the environment. Point the launch file at a different file
+    # with config:=/path/to.yaml if you need to.
     command:
       - ros2
       - launch
       - robot_control
       - robot_control.launch.py
-      - backend:=${ROBOT_BACKEND:-sim}
-      - robot_ip:=${ROBOT_IP:-192.168.0.37}
-      - robot_port:=${ROBOT_PORT:-443}
-      - robot_username:=${ROBOT_USERNAME:-Admin}
-      - robot_password:=${ROBOT_PASSWORD:-robotics}
