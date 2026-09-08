@@ -1,0 +1,42 @@
+// GPU vision development. Same source tree as robot_control; run git lfs pull
+// on the host before starting inference.
+{
+    "name": "vision",
+
+    "dockerComposeFile": [
+        "../../docker-compose.dev.yml"
+    ],
+    "service": "vision",
+    "runServices": ["vision"],
+    "workspaceFolder": "/workspace",
+
+    // Leave control running if its VS Code window is still open.
+    "shutdownAction": "none",
+
+    "postCreateCommand": "bash -c 'source /ros-env.sh && colcon build --symlink-install --packages-select tvarometr_interfaces tvarometr_inference'",
+
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "ms-python.vscode-pylance",
+                "charliermarsh.ruff",
+                "ms-iot.vscode-ros"
+            ],
+            "settings": {
+                "python.defaultInterpreterPath": "/usr/bin/python3",
+                "python.analysis.extraPaths": [
+                    "/opt/ros/humble/lib/python3.10/site-packages",
+                    "/opt/ros/humble/local/lib/python3.10/dist-packages",
+                    "/opt/colcon_ws/install/tvarometr_interfaces/lib/python3.10/site-packages",
+                    "/opt/colcon_ws/install/tvarometr_interfaces/local/lib/python3.10/dist-packages",
+                    "/workspace/src/tvarometr_inference",
+                    "/workspace/src/tvarometr_inference/tvarometr_inference/vendor"
+                ],
+                "terminal.integrated.defaultProfile.linux": "bash"
+            }
+        }
+    },
+
+    "remoteUser": "root"
+}
