@@ -52,28 +52,6 @@
                     "/workspace/install/robot_control_msgs/lib/python3.10/site-packages",
                     "/workspace/install/robot_control_msgs/local/lib/python3.10/dist-packages"
                 ],
-
-                // Only our own package is type-checked. Without this, strict
-                // mode would also report on the vendored networks and on
-                // master_pkg, neither of which we are annotating.
-                "python.analysis.include": [
-                    "src/robot_control"
-                ],
-                "python.analysis.typeCheckingMode": "strict",
-                "python.analysis.diagnosticSeverityOverrides": {
-                    // rclpy, geometry_msgs and requests ship no type stubs, so
-                    // everything that comes out of them is Unknown. Strict would
-                    // report that on nearly every line and drown the diagnostics
-                    // we can actually act on. Turn these back on individually if
-                    // you ever want to see how far the Unknowns reach.
-                    "reportMissingTypeStubs": "none",
-                    "reportUnknownMemberType": "none",
-                    "reportUnknownVariableType": "none",
-                    "reportUnknownArgumentType": "none",
-                    "reportUnknownParameterType": "none",
-                    "reportUnknownLambdaType": "none"
-                },
-
                 "terminal.integrated.defaultProfile.linux": "bash"
             }
         }
