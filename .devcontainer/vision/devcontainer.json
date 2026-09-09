@@ -18,6 +18,8 @@
     "customizations": {
         "vscode": {
             "extensions": [
+                "anthropic.claude-code",
+                "openai.chatgpt",
                 "ms-python.python",
                 "ms-python.vscode-pylance",
                 "charliermarsh.ruff",

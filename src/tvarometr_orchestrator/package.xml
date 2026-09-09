@@ -13,11 +13,14 @@
   <!-- Version 4. behaviortree_cpp_v3 is a different, incompatible package and
        Groot2 speaks to this one. -->
   <depend>behaviortree_cpp</depend>
+  <!-- The ROS 2 bindings: RosActionNode and friends. No apt package provides
+       them for Humble, so they are imported from source -->
+  <depend>behaviortree_ros2</depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_action</depend>
 
   <!-- The two interface sets the tree drives. robot_control_msgs belongs to the
-       driver's repository and arrives through `vcs import src < driver.repos`,
+       driver's repository and arrives through `vcs import src < dependencies.repos`,
        so that has to have run before this package builds. -->
   <depend>robot_control_msgs</depend>
   <depend>tvarometr_interfaces</depend>

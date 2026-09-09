@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  The run, end to end. Nearly empty for now: the nodes that talk to the camera,
-  the drawing node and the robot arrive one at a time, and this is where they
-  get sequenced.
+  The run, end to end. Still partial: the drawing and the robot arrive as their
+  nodes are written, and this is where they get sequenced.
 -->
 <root BTCPP_format="4" main_tree_to_execute="Tvarometr">
   <BehaviorTree ID="Tvarometr">
     <Sequence name="run">
-      <LogMessage message="Orchestrator is up. The tree has nothing to do yet."/>
+      <LogMessage message="Asking the camera for a face"/>
+      <RunInference attributes="{attributes}"/>
     </Sequence>
   </BehaviorTree>
 </root>

@@ -16,11 +16,13 @@
 
     // The image carries dependencies only, so build the packages once on create.
     // compile_commands.json is what gives clangd the include paths.
-    "postCreateCommand": "bash -c 'source /ros-env.sh && colcon build --symlink-install --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON --packages-select robot_control_msgs tvarometr_interfaces tvarometr_orchestrator'",
+    "postCreateCommand": "bash -c 'source /ros-env.sh && colcon build --symlink-install --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON --packages-select btcpp_ros2_interfaces behaviortree_ros2 robot_control_msgs tvarometr_interfaces tvarometr_orchestrator'",
 
     "customizations": {
         "vscode": {
             "extensions": [
+                "anthropic.claude-code",
+                "openai.chatgpt",
                 "llvm-vs-code-extensions.vscode-clangd",
                 "ms-vscode.cmake-tools",
                 "ms-iot.vscode-ros"

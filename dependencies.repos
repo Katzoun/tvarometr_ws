@@ -1,0 +1,10 @@
+repositories:
+  abb_rws2_ros2_driver:
+    type: git
+    url: https://github.com/Katzoun/abb_rws2_ros2_driver.git
+    version: main
+
+  behaviortree_ros2:
+    type: git
+    url: https://github.com/BehaviorTree/BehaviorTree.ROS2.git
+    version: 6c6aa078ee7bc52fec98984bed4964556abf5beb

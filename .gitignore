@@ -6,6 +6,5 @@ log/
 __pycache__/
 *.pyc
 .claude/
-docker-compose.override.yml
-ruff.toml
 src/abb_rws2_ros2_driver/
+src/behaviortree_ros2/

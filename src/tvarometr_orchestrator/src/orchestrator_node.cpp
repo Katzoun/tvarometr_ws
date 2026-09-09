@@ -10,7 +10,9 @@
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
 #include "behaviortree_cpp/bt_factory.h"
+#include "behaviortree_ros2/bt_action_node.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "tvarometr_interfaces/action/run_inference.hpp"
 
 namespace tvarometr_orchestrator
 {
@@ -50,6 +52,50 @@ private:
   rclcpp::Logger logger_;
 };
 
+/// Asks the vision node to run the models over its newest camera frame.
+///
+/// The action carries no goal fields - the node always works on whatever it
+/// last received - so everything here is about the answer, which lands on the
+/// blackboard for the drawing node to pick up.
+class RunInference : public BT::RosActionNode<tvarometr_interfaces::action::RunInference>
+{
+public:
+  RunInference(
+    const std::string & name, const BT::NodeConfig & config, const BT::RosNodeParams & params)
+  : BT::RosActionNode<tvarometr_interfaces::action::RunInference>(name, config, params)
+  {
+  }
+
+  static BT::PortsList providedPorts()
+  {
+    return providedBasicPorts(
+      {BT::OutputPort<tvarometr_interfaces::msg::FaceAttributes>(
+          "attributes", "Age, gender, emotion, and where the face sat in the frame")});
+  }
+
+  bool setGoal(Goal & /*goal*/) override
+  {
+    return true;
+  }
+
+  BT::NodeStatus onResultReceived(const WrappedResult & result) override
+  {
+    if (!result.result->success) {
+      RCLCPP_ERROR(logger(), "Inference failed: %s", result.result->message.c_str());
+      return BT::NodeStatus::FAILURE;
+    }
+    setOutput("attributes", result.result->attributes);
+    RCLCPP_INFO(logger(), "Inference: %s", result.result->message.c_str());
+    return BT::NodeStatus::SUCCESS;
+  }
+
+  BT::NodeStatus onFailure(BT::ActionNodeErrorCode error) override
+  {
+    RCLCPP_ERROR(logger(), "Inference action failed: %s", BT::toStr(error));
+    return BT::NodeStatus::FAILURE;
+  }
+};
+
 }  // namespace tvarometr_orchestrator
 
 int main(int argc, char ** argv)
@@ -69,6 +115,11 @@ int main(int argc, char ** argv)
 
   BT::BehaviorTreeFactory factory;
   factory.registerNodeType<tvarometr_orchestrator::LogMessage>("LogMessage", node->get_logger());
+
+  // The action server lives in the vision container. Its default name is set
+  // here rather than in the tree, so the XML stays about behaviour.
+  BT::RosNodeParams inference_params(node, "/inference_node/run_inference");
+  factory.registerNodeType<tvarometr_orchestrator::RunInference>("RunInference", inference_params);
 
   BT::Tree tree;
   try {

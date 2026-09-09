@@ -6,6 +6,5 @@ log
 **/__pycache__
 **/*.pyc
 .env
-ruff.toml
 **/.pytest_cache
 models

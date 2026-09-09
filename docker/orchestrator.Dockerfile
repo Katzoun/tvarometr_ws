@@ -13,11 +13,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Manifests only: the source itself is mounted at run time. robot_control_msgs
-# belongs to the driver's repository, so `vcs import src < driver.repos` has to
-# have run before this image is built - otherwise the COPY below fails.
+# belongs to the driver's repository and behaviortree_ros2 is third party, so
+# `vcs import src < dependencies.repos` has to have run before this image is
+# built - otherwise the COPY below fails.
 COPY src/tvarometr_orchestrator/package.xml /tmp/deps/tvarometr_orchestrator/package.xml
 COPY src/tvarometr_interfaces/package.xml /tmp/deps/tvarometr_interfaces/package.xml
 COPY src/abb_rws2_ros2_driver/robot_control_msgs/package.xml /tmp/deps/robot_control_msgs/package.xml
+COPY src/behaviortree_ros2/behaviortree_ros2/package.xml /tmp/deps/behaviortree_ros2/package.xml
+COPY src/behaviortree_ros2/btcpp_ros2_interfaces/package.xml /tmp/deps/btcpp_ros2_interfaces/package.xml
 RUN apt-get update \
     && rosdep update --rosdistro ${ROS_DISTRO} \
     && rosdep install --from-paths /tmp/deps --ignore-src --rosdistro ${ROS_DISTRO} -y \

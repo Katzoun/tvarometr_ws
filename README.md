@@ -98,14 +98,14 @@ nothing beyond the list above is needed on the host.
 git clone https://github.com/Katzoun/tvarometr_ws.git
 cd tvarometr_ws
 git lfs install && git lfs pull      # weights; LFS pointers are ~130 bytes
-vcs import src < driver.repos        # the ABB driver, from its own repository
+vcs import src < dependencies.repos        # the ABB driver, from its own repository
 docker compose -f docker-compose.dev.yml up -d --build
 ```
 
 The order matters. The orchestrator is C++ and needs the driver's
 `robot_control_msgs` headers to build, so its image resolves that package's
 manifest - `vcs import` has to have run first or the build fails on a missing
-file. `driver.repos` pins the repository and branch; the import lands in
+file. `dependencies.repos` pins the repository and branch; the import lands in
 `src/abb_rws2_ros2_driver/` and is git-ignored here, so the driver stays
 versioned in its own repo, not this one. `vcs pull src` updates it later.
 
@@ -292,7 +292,7 @@ docker compose -f docker-compose.dev.yml up -d --build
 | `docker/orchestrator.Dockerfile`, `docker/vision.Dockerfile` | Dependencies for each container. No source, models or prebuilt workspace. |
 | `docker-compose.dev.yml` | How the containers run: mounts, GPU, camera, network, profiles. |
 | `.devcontainer/orchestrator/`, `.devcontainer/vision/` | Which service VS Code attaches to, its extensions, and the build on create. |
-| `driver.repos` | The driver's repository and branch, for `vcs import`. |
+| `dependencies.repos` | The driver's repository and branch, for `vcs import`. |
 | `docker/colcon-defaults-*.yaml` | Colcon output paths, and which packages each container builds. |
 | `docker/ros-env.sh` | Sources ROS and the built workspace in every shell. |
 | `docker/entrypoint.sh` | Sources ROS, then runs the container command. |
@@ -343,7 +343,7 @@ tvarometr_ws/
 ├── models/                        # Network weights, Git LFS
 ├── docker/                        # Dockerfile, pinned requirements, entrypoint
 ├── .devcontainer/                 # VS Code configs for orchestrator/ and vision/
-├── driver.repos                   # where the ABB driver is imported from
+├── dependencies.repos                   # where the ABB driver is imported from
 └── docker-compose.dev.yml         # orchestrator + optional vision and driver
 ```
 

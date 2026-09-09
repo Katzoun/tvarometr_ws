@@ -11,11 +11,13 @@ build:
   base-paths: [/workspace/src]
   build-base: /opt/colcon_ws/build
   install-base: /opt/colcon_ws/install
-  packages-select: [robot_control_msgs, tvarometr_interfaces, tvarometr_orchestrator]
+  packages-select: [btcpp_ros2_interfaces, behaviortree_ros2, robot_control_msgs,
+                    tvarometr_interfaces, tvarometr_orchestrator]
 test:
   base-paths: [/workspace/src]
   build-base: /opt/colcon_ws/build
   install-base: /opt/colcon_ws/install
-  packages-select: [robot_control_msgs, tvarometr_interfaces, tvarometr_orchestrator]
+  packages-select: [btcpp_ros2_interfaces, behaviortree_ros2, robot_control_msgs,
+                    tvarometr_interfaces, tvarometr_orchestrator]
 test-result:
   test-result-base: /opt/colcon_ws/build

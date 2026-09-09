@@ -17,7 +17,7 @@ Na hostiteli, ještě před otevřením kontejneru:
 
 ```bash
 git lfs install && git lfs pull      # váhy modelů; bez LFS dostaneš jen ukazatele
-vcs import src < driver.repos        # ovladač robota z jeho repozitáře
+vcs import src < dependencies.repos        # ovladač robota z jeho repozitáře
 ```
 
 Import musí proběhnout **před** stavbou obrazů. Orchestrátor je v C++ a potřebuje
