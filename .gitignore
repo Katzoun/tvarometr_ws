@@ -8,3 +8,4 @@ __pycache__/
 .claude/
 docker-compose.override.yml
 ruff.toml
+src/abb_rws2_ros2_driver/

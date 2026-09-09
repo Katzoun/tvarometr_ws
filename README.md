@@ -38,16 +38,11 @@ Image acquisition and neural network inference.
   `/start_inference` (std_msgs/String) trigger,
   `/face_attributes` (std_msgs/String) JSON with age, gender and emotion.
 
-#### `robot_control`
-The ABB robot driver, a managed node speaking Robot Web Services.
-
-- **Nodes:** `robot_controller_node_exec` - RWS session, motion actions, joint
-  states.
-- **Interfaces:** `robot_robtarget_move` / `robot_jointtarget_move` (actions)
-  stream a path into the RAPID buffer queue over DIPC; `controller_request`
-  (service) calls one of the RWS methods listed in `commands.py`, which the
-  `help` command names; `joint_states` (sensor_msgs/JointState) reports the
-  robot pose while active.
+#### `robot_control`, `robot_control_msgs`
+The ABB robot driver and its interface definitions. They live in their own
+repository, [abb_rws2_ros2_driver](https://github.com/Katzoun/abb_rws2_ros2_driver),
+and are pulled into `src/` by vcstool. Its README documents the nodes, the
+motion actions and the request service.
 
 #### `master_pkg` (reference only)
 The pre-rebuild system: state machine, its own RWS client, path generation and
@@ -89,11 +84,20 @@ nothing else is needed on the host.
 git clone https://github.com/Katzoun/tvarometr_ws.git
 cd tvarometr_ws
 git lfs install && git lfs pull      # weights; LFS pointers are ~130 bytes
+vcs import src < driver.repos        # the ABB driver, from its own repository
 docker compose -f docker-compose.dev.yml up -d --build control vision
 ```
 
+`driver.repos` pins the driver's repository and branch. The import lands in
+`src/abb_rws2_ros2_driver/` and is git-ignored here, so the driver is versioned
+in its own repo, not this one; `vcs pull src` updates it later. A container
+created before the driver moved can still hold a colcon build pointing at the
+old path - if it complains about the source directory, `rm -rf
+/opt/colcon_ws/build/robot_control*` and build again.
+
 Put the robot's address and credentials in
-`src/robot_control/config/robot_control.yaml` before the first run.
+`src/abb_rws2_ros2_driver/robot_control/config/robot_control.yaml` before the
+first run.
 
 `docker-compose.dev.yml` is the only compose file. It defines two environments
 that share the source tree but keep their own dependencies:
@@ -159,34 +163,9 @@ ros2 lifecycle set /robot_controller configure
 ros2 lifecycle set /robot_controller activate
 ```
 
-Everything else on the controller goes through one service, which lists itself:
-
-```bash
-ros2 service call /robot_controller/controller_request \
-    robot_control_msgs/srv/RobotRequestSrv "{command: 'help'}" | sed 's/\\n/\n/g'
-```
-
-The `sed` is there only because `ros2 service call` prints the response on a
-single line. `help` answers before `configure` as well - it never touches the
-robot. Parameters go in as `name=value`, in any order:
-
-```bash
-ros2 service call /robot_controller/controller_request \
-    robot_control_msgs/srv/RobotRequestSrv \
-    "{command: 'get_rapid_symbol', params: ['symbol_name=current_state', 'module_name=TRobMain']}"
-```
-
-Only what `src/robot_control/robot_control/commands.py` lists can be called, and
-a command that changes something is refused while a trajectory is running.
-
 **There is no orchestrator yet.** Until the BehaviorTree one exists, send goals
-by hand:
-
-```bash
-ros2 action send_goal /robot_controller/robot_robtarget_move \
-    robot_control_msgs/action/ExecutePoseArray \
-    "{motion_command: MoveL, speed: '100', path: {poses: [...]}}"
-```
+by hand. The request service and the motion actions are documented in the
+[driver's README](https://github.com/Katzoun/abb_rws2_ros2_driver).
 
 ### Vision
 
@@ -269,8 +248,9 @@ docker compose -f docker-compose.dev.yml up -d --build control vision
 
 ### Robot
 
-Address and credentials come from `src/robot_control/config/robot_control.yaml`,
-which the launch file passes to the driver as ROS parameters:
+Address and credentials come from
+`src/abb_rws2_ros2_driver/robot_control/config/robot_control.yaml`, which the
+launch file passes to the driver as ROS parameters:
 `connection.ip_address`, `connection.port`, `connection.username`,
 `connection.password`. The virtual controller usually listens on port 80, the
 physical one on 443.
@@ -301,17 +281,9 @@ tvarometr_ws/
 │   │       ├── inference_node.py
 │   │       └── vendor/            # MiVOLO and ResEmoteNet, vendored as-is
 │   ├── tvarometr_interfaces/      # msg/srv/action definitions
-│   ├── robot_control_msgs/        # driver msg/srv/action definitions
-│   ├── robot_control/             # ABB robot driver, managed node (RWS)
-│   │   ├── launch/robot_control.launch.py
-│   │   ├── config/robot_control.yaml  # address, credentials, rates
-│   │   ├── test/                  # command table vs. the code it names
-│   │   └── robot_control/
-│   │       ├── robot_controller_node.py
-│   │       ├── commands.py        # what the request service may call
-│   │       ├── conversions.py     # ROS messages <-> RAPID literals
-│   │       ├── constants.py       # names shared with the RAPID program
-│   │       └── rws/               # HTTP client, RWS calls
+│   ├── abb_rws2_ros2_driver/      # ABB driver, imported by vcstool, git-ignored
+│   │   ├── robot_control/         # the driver, a managed node (RWS)
+│   │   └── robot_control_msgs/    # driver msg/srv/action definitions
 │   └── master_pkg/                # Pre-rebuild system, reference only
 │       ├── launch/control.launch.py
 │       └── master_pkg/
@@ -324,6 +296,7 @@ tvarometr_ws/
 ├── models/                        # Network weights, Git LFS
 ├── docker/                        # Dockerfiles, pinned requirements, entrypoint
 ├── .devcontainer/                 # VS Code configs for control/ and vision/
+├── driver.repos                   # where the ABB driver is imported from
 └── docker-compose.dev.yml         # control + optional GPU vision, source mounted
 ```
 

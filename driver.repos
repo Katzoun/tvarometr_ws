@@ -1,0 +1,5 @@
+repositories:
+  abb_rws2_ros2_driver:
+    type: git
+    url: https://github.com/Katzoun/abb_rws2_ros2_driver.git
+    version: main
