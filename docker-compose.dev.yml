@@ -1,38 +1,42 @@
-# Development stack. Two environments over one source tree: control (CPU) and
-# vision (GPU, behind a Compose profile). Both idle - you start nodes yourself.
-# See README.md for the workflow.
+# Development stack. Three environments over one source tree:
+#
+#   orchestrator  the behaviour tree, CPU only - started by a plain `up -d`
+#   vision        camera and networks, wants an NVIDIA GPU  (--profile vision)
+#   driver        the ABB driver, wants a robot             (--profile robot)
+#
+# Only the first two are developed here. The driver has its own repository and
+# this builds its production image - we run the driver, we do not define its
+# environment. See README.md for the workflow.
 
 services:
-  control:
+  orchestrator:
     build:
       context: .
-      dockerfile: docker/control.Dockerfile
-    image: tvarometr/control:dev
-    container_name: tvarometr_control_dev
+      dockerfile: docker/orchestrator.Dockerfile
+    image: tvarometr/orchestrator:dev
+    container_name: tvarometr_orchestrator_dev
     network_mode: host
-    # Fast DDS talks over shared memory; with a private /dev/shm the containers
-    # discover each other but no messages arrive.
+    # Fast DDS talks over shared memory; with a private /dev/shm other nodes
+    # discover this one but no messages arrive.
     ipc: host
     stdin_open: true
     tty: true
     environment:
       ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-42}
       RMW_IMPLEMENTATION: rmw_fastrtps_cpp
-      # Otherwise python buffers its output when stdout is a pipe.
-      PYTHONUNBUFFERED: "1"
     # One set of files seen from two places, so there is nothing to copy back
     # out. Colcon writes outside it, to /opt/colcon_ws, and not to a volume.
     volumes:
       - .:/workspace
       # Editor extensions and assistant logins - expensive to reinstall, and
       # otherwise thrown away with the container on every rebuild.
-      - vscode-server:/root/.vscode-server
+      - orchestrator-vscode-server:/root/.vscode-server
       - claude-home:/root/.claude
       - codex-home:/root/.codex
     command: sleep infinity
 
   vision:
-    # Keeps a plain `up -d` control-only. Naming the service enables the profile.
+    # Wants an NVIDIA GPU, so a plain `up -d` leaves it alone.
     profiles: [vision]
     build:
       context: .
@@ -40,6 +44,8 @@ services:
     image: tvarometr/vision:dev
     container_name: tvarometr_vision_dev
     network_mode: host
+    # Fast DDS talks over shared memory; with a private /dev/shm other nodes
+    # discover this one but no messages arrive.
     ipc: host
     stdin_open: true
     tty: true
@@ -68,8 +74,26 @@ services:
       - codex-home:/root/.codex
     command: sleep infinity
 
+  driver:
+    # Wants a robot, so a plain `up -d` leaves it alone.
+    profiles: [robot]
+    # Built from the driver's own Dockerfile, against the source that
+    # `vcs import src < driver.repos` puts in place. Nothing about the driver's
+    # environment is described here.
+    build:
+      context: ./src/abb_rws2_ros2_driver
+      dockerfile: docker/prod.Dockerfile
+    image: abb_rws2_ros2_driver:prod
+    container_name: abb_rws2_ros2_driver
+    network_mode: host
+    ipc: host
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-42}
+      RMW_IMPLEMENTATION: rmw_fastrtps_cpp
+      PYTHONUNBUFFERED: "1"
+
 volumes:
-  vscode-server:
   claude-home:
   codex-home:
+  orchestrator-vscode-server:
   vision-vscode-server:

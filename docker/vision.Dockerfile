@@ -54,7 +54,7 @@ COPY docker/requirements-vision.txt /tmp/requirements-vision.txt
 RUN pip3 install --no-cache-dir -r /tmp/requirements-vision.txt
 
 WORKDIR /workspace
-COPY docker/colcon-defaults.yaml /colcon-defaults.yaml
+COPY docker/colcon-defaults-vision.yaml /colcon-defaults.yaml
 COPY docker/ros-env.sh /ros-env.sh
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh /ros-env.sh \

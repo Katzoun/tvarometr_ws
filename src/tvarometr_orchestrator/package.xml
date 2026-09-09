@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>tvarometr_orchestrator</name>
+  <version>0.0.0</version>
+  <description>Behavior tree that drives the camera, the drawing and the robot</description>
+  <maintainer email="tomas.janousek02@gmail.com">Tomas Janousek</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>ament_index_cpp</depend>
+  <!-- Version 4. behaviortree_cpp_v3 is a different, incompatible package and
+       Groot2 speaks to this one. -->
+  <depend>behaviortree_cpp</depend>
+  <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
+
+  <!-- The two interface sets the tree drives. robot_control_msgs belongs to the
+       driver's repository and arrives through `vcs import src < driver.repos`,
+       so that has to have run before this package builds. -->
+  <depend>robot_control_msgs</depend>
+  <depend>tvarometr_interfaces</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

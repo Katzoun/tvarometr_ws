@@ -1,0 +1,21 @@
+# Colcon settings for the orchestrator container.
+#
+# Two jobs. Generated files stay inside the container, outside the /workspace
+# bind mount, so a build never writes into the repository. And a bare
+# `colcon build` or `colcon test` touches only the packages this container
+# owns - the one source tree also holds the vision packages and the driver,
+# whose dependencies are deliberately not installed here.
+"":
+  log-base: /opt/colcon_ws/log
+build:
+  base-paths: [/workspace/src]
+  build-base: /opt/colcon_ws/build
+  install-base: /opt/colcon_ws/install
+  packages-select: [robot_control_msgs, tvarometr_interfaces, tvarometr_orchestrator]
+test:
+  base-paths: [/workspace/src]
+  build-base: /opt/colcon_ws/build
+  install-base: /opt/colcon_ws/install
+  packages-select: [robot_control_msgs, tvarometr_interfaces, tvarometr_orchestrator]
+test-result:
+  test-result-base: /opt/colcon_ws/build

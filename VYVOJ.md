@@ -2,15 +2,30 @@
 
 Úplný popis je v [README](README.md#getting-started), tohle je zkrácená verze.
 
-Máš dvě prostředí: **robot_control** pro ovladač robota a **vision** pro kameru
+Máš dvě prostředí: **orchestrator** pro chování systému a **vision** pro kameru
 a neuronové sítě. Obě vidí stejný repozitář, ale každé má vlastní knihovny
-i výsledky sestavení.
+i výsledky sestavení. Vision potřebuje NVIDIA GPU a NVIDIA Container Toolkit,
+orchestrátor běží kdekoli.
 
-## 1. Otevři prostředí
+Ovladač robota se tu nevyvíjí — má vlastní repozitář
+[abb_rws2_ros2_driver](https://github.com/Katzoun/abb_rws2_ros2_driver)
+i vlastní devcontainer. Tenhle stack ho umí jen spustit, za profilem `robot`.
 
-Na hostiteli otevři repozitář ve VS Code, přes `F1` spusť **Dev Containers:
-Reopen in Container** a vyber jedno z nich. Vision potřebuje NVIDIA GPU
-a NVIDIA Container Toolkit.
+## 1. Připrav si repozitář
+
+Na hostiteli, ještě před otevřením kontejneru:
+
+```bash
+git lfs install && git lfs pull      # váhy modelů; bez LFS dostaneš jen ukazatele
+vcs import src < driver.repos        # ovladač robota z jeho repozitáře
+```
+
+Import musí proběhnout **před** stavbou obrazů. Orchestrátor je v C++ a potřebuje
+hlavičky z `robot_control_msgs`, takže jeho image sahá na manifest ovladače —
+bez importu build spadne na chybějícím souboru.
+
+Pak otevři repozitář ve VS Code, přes `F1` spusť **Dev Containers: Reopen in
+Container** a vyber jedno z prostředí.
 
 VS Code kontejner připraví a sestaví jeho ROS balíčky. Terminály v tom okně pak
 běží uvnitř kontejneru. Sám o sobě kontejner nespustí nic.
@@ -19,30 +34,44 @@ Pro souběžnou práci otevři repozitář ve druhém okně a vyber druhé prost
 Zavření okna kontejnery nevypíná; zastavíš je z terminálu hostitele:
 
 ```bash
-docker compose -f docker-compose.dev.yml --profile vision stop
+docker compose -f docker-compose.dev.yml --profile vision --profile robot stop
 ```
 
 ## 2. Spusť uzel
 
-V prostředí **robot_control**:
+V prostředí **orchestrator**:
 
 ```bash
-ros2 launch robot_control robot_control.launch.py
+ros2 launch tvarometr_orchestrator orchestrator.launch.py
 ```
 
-Controller čeká ve stavu `unconfigured`. Připojení k robotu aktivuješ z druhého
-terminálu:
+Strom proběhne jednou a proces s ním skončí — není to démon, pouštíš ho, když je
+co kreslit. Zatím je to kostra s jediným logovacím uzlem.
 
-```bash
-ros2 lifecycle set /robot_controller configure
-ros2 lifecycle set /robot_controller activate
-```
-
-V prostředí **vision** nejdřív na hostiteli stáhni modely přes `git lfs pull`:
+V prostředí **vision**:
 
 ```bash
 ros2 launch tvarometr_inference vision.launch.py device:=cuda:0 use_camera:=false
 ```
+
+Uzel naběhne ve stavu `unconfigured` a nemá načtené váhy. Konfigurace je načte,
+což chvíli trvá, aktivace mu pak dovolí přijímat goaly:
+
+```bash
+ros2 lifecycle set /inference_node configure
+ros2 lifecycle set /inference_node activate
+```
+
+Sítě pustíš na poslední snímek přes action:
+
+```bash
+ros2 action send_goal /inference_node/run_inference \
+    tvarometr_interfaces/action/RunInference {}
+```
+
+Ovladač robota spustíš z jeho vlastního kontejneru, postup je v jeho README.
+Oba kontejnery běží na síti hostitele se stejným `ROS_DOMAIN_ID`, takže se
+jejich uzly navzájem vidí.
 
 ## 3. Upravuj kód
 
@@ -53,11 +82,17 @@ Po změně ROS zpráv, akcí, entry pointů nebo launch/config souborů sestav
 balíčky znovu a načti výsledek:
 
 ```bash
-colcon build --symlink-install --packages-select robot_control_msgs robot_control
+# v orchestrator
+colcon build --symlink-install --packages-select \
+    robot_control_msgs tvarometr_interfaces tvarometr_orchestrator
+# ve vision
+colcon build --symlink-install --packages-select tvarometr_interfaces tvarometr_inference
+
 source /opt/colcon_ws/install/setup.bash
 ```
 
-Vision staví `tvarometr_interfaces tvarometr_inference`.
+V C++ se navíc musí přestavět po každé změně zdrojáku, `--symlink-install` tam
+narozdíl od Pythonu nic neušetří.
 
 Po změně knihoven nebo Dockerfile použij **Dev Containers: Rebuild Container**.
 

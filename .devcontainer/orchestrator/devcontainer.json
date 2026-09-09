@@ -1,0 +1,38 @@
+// Behaviour tree development. A thin wrapper around the `orchestrator` service
+// in docker-compose.dev.yml, so the editor and the CLI land in the same
+// container.
+{
+    "name": "orchestrator",
+
+    "dockerComposeFile": [
+        "../../docker-compose.dev.yml"
+    ],
+    "service": "orchestrator",
+    "runServices": ["orchestrator"],
+    "workspaceFolder": "/workspace",
+
+    // Closing the window must not stop vision in another one.
+    "shutdownAction": "none",
+
+    // The image carries dependencies only, so build the packages once on create.
+    // compile_commands.json is what gives clangd the include paths.
+    "postCreateCommand": "bash -c 'source /ros-env.sh && colcon build --symlink-install --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON --packages-select robot_control_msgs tvarometr_interfaces tvarometr_orchestrator'",
+
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "llvm-vs-code-extensions.vscode-clangd",
+                "ms-vscode.cmake-tools",
+                "ms-iot.vscode-ros"
+            ],
+            "settings": {
+                "clangd.arguments": [
+                    "--compile-commands-dir=/opt/colcon_ws/build/tvarometr_orchestrator"
+                ],
+                "terminal.integrated.defaultProfile.linux": "bash"
+            }
+        }
+    },
+
+    "remoteUser": "root"
+}

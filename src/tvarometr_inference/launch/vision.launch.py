@@ -2,13 +2,14 @@
 """Camera driver + inference - the GPU container half of the system.
 
 usb_cam streams continuously on /image_raw; the inference node keeps the newest
-frame and runs the models when master_pkg publishes on /start_inference."""
+frame and runs the models when it is sent a RunInference goal. It is a managed
+node, so it comes up unconfigured - configure is what loads the weights."""
 
 import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch_ros.actions import Node
+from launch_ros.actions import LifecycleNode, Node
 from launch.actions import DeclareLaunchArgument, LogInfo
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
@@ -51,10 +52,11 @@ def generate_launch_description():
         emulate_tty=True
     )
 
-    inference_node = Node(
+    inference_node = LifecycleNode(
         package='tvarometr_inference',
         executable='inference_node_exec',
         name='inference_node',
+        namespace='',
         output='screen',
         parameters=[{
             'device': LaunchConfiguration('device'),

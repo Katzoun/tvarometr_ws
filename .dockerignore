@@ -7,4 +7,5 @@ log
 **/*.pyc
 .env
 ruff.toml
-**/.pytest-cache
+**/.pytest_cache
+models
