@@ -1,6 +1,14 @@
 cmake_minimum_required(VERSION 3.8)
 project(tvarometr_orchestrator)
 
+# gcc defaults to C++17, clang to C++14, so clangd would flag code that builds.
+# Extensions off forces -std into compile_commands; CMake omits it otherwise.
+if(NOT CMAKE_CXX_STANDARD)
+  set(CMAKE_CXX_STANDARD 17)
+endif()
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()

@@ -8,7 +8,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
     COLCON_DEFAULTS_FILE=/colcon-defaults.yaml \
     BASH_ENV=/ros-env.sh
 
+# clangd for the editor, gdb for the debugger.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+        clangd \
+        gdb \
         python3-colcon-common-extensions \
     && rm -rf /var/lib/apt/lists/*
 

@@ -15,8 +15,9 @@
     "shutdownAction": "none",
 
     // The image carries dependencies only, so build the packages once on create.
-    // compile_commands.json is what gives clangd the include paths.
-    "postCreateCommand": "bash -c 'source /ros-env.sh && colcon build --symlink-install --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON --packages-select btcpp_ros2_interfaces behaviortree_ros2 robot_control_msgs tvarometr_interfaces tvarometr_orchestrator'",
+    // Packages, output paths and cmake flags come from
+    // docker/colcon-defaults-orchestrator.yaml.
+    "postCreateCommand": "bash -c 'source /ros-env.sh && colcon build --symlink-install'",
 
     "customizations": {
         "vscode": {
@@ -24,13 +25,19 @@
                 "anthropic.claude-code",
                 "openai.chatgpt",
                 "llvm-vs-code-extensions.vscode-clangd",
+                // Only for the debugger: it owns cppdbg. IntelliSense off below.
+                "ms-vscode.cpptools",
                 "ms-vscode.cmake-tools",
-                "ms-iot.vscode-ros"
+                // Replaces ms-iot.vscode-ros, which is archived.
+                "Ranch-Hand-Robotics.rde-ros-2"
             ],
             "settings": {
+                // The merged file, so jumping into behaviortree_ros2 works.
                 "clangd.arguments": [
-                    "--compile-commands-dir=/opt/colcon_ws/build/tvarometr_orchestrator"
+                    "--compile-commands-dir=/opt/colcon_ws/build"
                 ],
+                // clangd reads the code; two engines would fight over it.
+                "C_Cpp.intelliSenseEngine": "disabled",
                 "terminal.integrated.defaultProfile.linux": "bash"
             }
         }
