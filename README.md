@@ -58,12 +58,13 @@ BT.CPP is - version 4, the one Groot2 speaks to.
 The tree is a skeleton being designed shape first: it waits for the operator,
 runs a cycle, wipes the board and comes back to waiting. Every step is still a
 `MockAction` that pretends to work, so the whole cycle runs with no camera and
-no robot. `RunInference` and `GenerateDrawing` are written and registered; a
-step becomes real by renaming it in the tree file, which needs no rebuild.
+no robot, except for `GenerateTrajectories`, which is real. `RunInference` is
+written and registered too; a step becomes real by renaming it in the tree
+file, which needs no rebuild.
 
 The tree brings the managed nodes up before it will take a run: it configures
 and activates the inference node and the robot driver, skips whichever is
-active already, and checks both again at the top of every cycle. The drawing
+active already, and checks both again at the top of every cycle. The trajectory
 and centring nodes are not managed and need only to be running. Bringing them up from the tree rather than by hand is what makes a
 restart of this process cheap - nothing reloads that is already loaded.
 
@@ -91,10 +92,13 @@ networks workable on a machine with no NVIDIA card.
 Python, because these are where the numbers get tuned: a gain, a deadband, a
 letter height. Changing one and trying again should not mean a rebuild.
 
-- **`drawing_node_exec`** turns a face analysis into the path to draw. Plain
-  geometry over the text, so it is a plain node, not a managed one - there is
-  nothing to load and nothing to release.
-  - **Actions:** `drawing_node/generate_drawing` answers with a `PoseArray`.
+- **`trajectory_node_exec`** turns a face analysis into the paths to draw.
+  Plain geometry over the text, so it is a plain node, not a managed one -
+  there is nothing to load and nothing to release.
+  - **Services:** `trajectory_node/generate_trajectories` answers with three
+    `PoseArray`s - the fixed labels, this run's values, and the sweep that
+    clears the value column. A service, not an action: it is a couple of
+    milliseconds of geometry with nothing to report and nothing to cancel.
 - **`centring_node_exec`** frames a face before the analysis pass runs. The
   camera rides on the flange, so this walks the arm until the face sits where
   it should - a child's face starts low in the frame, and that is what the
@@ -384,7 +388,7 @@ tvarometr_ws/
 │   │       └── vendor/            # MiVOLO and ResEmoteNet, vendored as-is
 │   ├── tvarometr_geometry/        # No GPU needed (orchestrator container)
 │   │   └── tvarometr_geometry/
-│   │       ├── drawing_node.py    # face analysis -> the path to draw
+│   │       ├── trajectory_node.py # face analysis -> the paths to draw
 │   │       ├── path_generator.py  # text -> line segments
 │   │       └── centring_node.py   # walks the arm until the face is framed
 │   ├── tvarometr_interfaces/      # msg/srv/action definitions

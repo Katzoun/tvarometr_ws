@@ -23,7 +23,7 @@ setup(
             'generate_text_path = tvarometr_geometry.path_generator:main',
             'trajectory_svg = tvarometr_geometry.trajectory_svg:main',
             'centring_node_exec = tvarometr_geometry.centring_node:main',
-            'drawing_node_exec = tvarometr_geometry.drawing_node:main',
+            'trajectory_node_exec = tvarometr_geometry.trajectory_node:main',
         ],
     },
 )

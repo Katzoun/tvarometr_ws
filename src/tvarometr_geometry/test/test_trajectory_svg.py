@@ -40,6 +40,24 @@ def test_preserves_mm_scale_flips_y_and_breaks_at_pen_lifts():
     assert travel.get("d") == "M 100,-50 L 200,0"
 
 
+def test_metre_json_renders_at_same_physical_size_as_legacy_mm():
+    legacy = drawing()
+    metres = {
+        name: [[v / 1000 for v in point] for point in legacy[name]]
+        for name in ("labels", "values", "erase")
+    }
+    metres["values_bounds"] = [v / 1000 for v in legacy["values_bounds"]]
+    metres["units"] = "m"
+    assert trajectories_to_svg(metres) == trajectories_to_svg(legacy)
+
+
+def test_unknown_units_are_rejected():
+    data = drawing()
+    data["units"] = "cm"
+    with pytest.raises(ValueError, match="Unsupported units"):
+        trajectories_to_svg(data)
+
+
 def test_inkscape_layers_and_travel_visibility():
     for visible in (True, False):
         root = ET.fromstring(trajectories_to_svg(drawing(), show_travel=visible))

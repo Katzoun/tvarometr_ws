@@ -13,10 +13,10 @@ find_package(rosidl_default_generators REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/FaceAttributes.msg"
 
-  "action/GenerateDrawing.action"
   "action/RunInference.action"
 
   "srv/DetectFace.srv"
+  "srv/GenerateTrajectories.srv"
 
   DEPENDENCIES geometry_msgs sensor_msgs
 )

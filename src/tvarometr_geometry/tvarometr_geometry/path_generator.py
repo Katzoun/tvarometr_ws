@@ -1,6 +1,7 @@
 """Text to single-line drawing trajectories, independent of ROS and the robot.
 
-Coordinates are millimetres: X goes right, Y up, Z=0 touches the board.
+Input lengths are millimetres; output coordinates are metres.
+X goes right, Y up, Z=0 touches the board.
 The first line's baseline is Y=0; subsequent lines run down the board.
 Relief SingleLine includes Czech accents, which may exceed letter_height.
 Each disconnected stroke starts and ends with the pen lifted.
@@ -17,6 +18,8 @@ from functools import lru_cache
 from pathlib import Path
 
 from svg.path import Close, CubicBezier, Line, Move, parse_path
+
+MM_TO_M = 0.001
 
 
 @lru_cache(maxsize=1)
@@ -41,6 +44,17 @@ def _load_font():
     return cap_height, glyphs
 
 
+def _line_steps(length, max_segment_length):
+    if max_segment_length is None:
+        return 1
+    ratio = length / max_segment_length
+    nearest = round(ratio)
+    # Unit conversion can turn exactly 40 steps into 40.00000000000001.
+    if math.isclose(ratio, nearest, rel_tol=0, abs_tol=1e-12):
+        return max(1, nearest)
+    return max(1, math.ceil(ratio))
+
+
 def _segment_points(segment, scale, max_segment_length, curve_tolerance):
     """Sample with bounds on chord length and cubic interpolation error."""
     if isinstance(segment, CubicBezier):
@@ -55,12 +69,12 @@ def _segment_points(segment, scale, max_segment_length, curve_tolerance):
         acceleration = 6 * max(abs(p2 - 2 * p1 + p0), abs(p3 - 2 * p2 + p1)) * scale
         steps = max(
             1,
-            math.ceil(speed / max_segment_length),
+            _line_steps(speed, max_segment_length),
             math.ceil(math.sqrt(acceleration / (8 * curve_tolerance))),
         )
     elif isinstance(segment, (Line, Close)):
-        steps = max(
-            1, math.ceil(abs(segment.end - segment.start) * scale / max_segment_length)
+        steps = _line_steps(
+            abs(segment.end - segment.start) * scale, max_segment_length
         )
     else:
         raise TypeError(f"Unsupported font segment: {type(segment).__name__}")
@@ -75,17 +89,18 @@ def generate_path(
     line_spacing: float = 1.5,
     *,
     pen_up: float = 20.0,
-    max_segment_length: float = 15.0,
-    curve_tolerance: float = 0.1,
+    max_segment_length: float | None = None,
+    curve_tolerance: float = 0.5,
 ) -> list[tuple[float, float, float]]:
-    """Return (x, y, z) waypoints, with the existing drawing-node call signature.
+    """Return (x, y, z) waypoints in metres; input lengths remain in mm.
 
     letter_height scales the font's nominal capital height (680 font units).
     letter_spacing adds tracking to the font's own advance widths. Spaces use
     the font's space advance multiplied by space_factor, plus letter_spacing.
     line_spacing is baseline separation as a multiple of letter_height.
-    max_segment_length limits pen-down steps; curve_tolerance bounds their
-    deviation from the Bezier curves, both in mm. Travel moves are lifted.
+    max_segment_length optionally limits pen-down steps (None: no length cap).
+    Straight segments use endpoints; curve_tolerance bounds the Bezier
+    approximation error in mm. Requires linear motion between waypoints.
     NFC normalization accepts both composed and decomposed Czech characters.
     Unsupported characters raise ValueError instead of silently losing text.
 
@@ -96,13 +111,16 @@ def generate_path(
         ("space_factor", space_factor),
         ("line_spacing", line_spacing),
         ("pen_up", pen_up),
-        ("max_segment_length", max_segment_length),
         ("curve_tolerance", curve_tolerance),
     ):
         if not math.isfinite(value) or value <= 0:
             raise ValueError(f"{name} must be finite and positive")
     if not math.isfinite(letter_spacing) or letter_spacing < 0:
         raise ValueError("letter_spacing must be finite and nonnegative")
+    if max_segment_length is not None and (
+        not math.isfinite(max_segment_length) or max_segment_length <= 0
+    ):
+        raise ValueError("max_segment_length must be None or finite and positive")
 
     text = unicodedata.normalize(
         "NFC", input_str.replace("\r\n", "\n").replace("\r", "\n")
@@ -114,6 +132,7 @@ def generate_path(
         raise ValueError(f"Characters missing from Relief SingleLine: {names}")
 
     scale = letter_height / cap_height
+    pen_up_m = pen_up * MM_TO_M
     points = []
     pen_down = False
 
@@ -121,7 +140,7 @@ def generate_path(
         nonlocal pen_down
         if pen_down:
             x, y, _ = points[-1]
-            points.append((x, y, pen_up))
+            points.append((x, y, pen_up_m))
             pen_down = False
 
     for row, line in enumerate(text.split("\n")):
@@ -135,13 +154,20 @@ def generate_path(
                     continue
                 if not pen_down:
                     start = segment.start * scale
-                    x, y = start.real + x_offset, start.imag + y_offset
-                    points.extend([(x, y, pen_up), (x, y, 0.0)])
+                    x = (start.real + x_offset) * MM_TO_M
+                    y = (start.imag + y_offset) * MM_TO_M
+                    points.extend([(x, y, pen_up_m), (x, y, 0.0)])
                     pen_down = True
                 for point in _segment_points(
                     segment, scale, max_segment_length, curve_tolerance
                 ):
-                    points.append((point.real + x_offset, point.imag + y_offset, 0.0))
+                    points.append(
+                        (
+                            (point.real + x_offset) * MM_TO_M,
+                            (point.imag + y_offset) * MM_TO_M,
+                            0.0,
+                        )
+                    )
             lift()
             x_offset += (
                 advance * scale * (space_factor if character == " " else 1)
@@ -161,10 +187,12 @@ def generate_trajectories(
     eraser_width: float = 20.0,
     label_gap: float = 10.0,
     pen_up: float = 20.0,
-    max_segment_length: float = 15.0,
-    curve_tolerance: float = 0.1,
+    max_segment_length: float | None = None,
+    curve_tolerance: float = 0.5,
 ) -> dict:
-    """Return labels, values and erase paths together, plus values_bounds.
+    """Return paths and values_bounds in metres, with units="m".
+
+    Input lengths remain in mm.
 
     input_str contains exactly three lines: age, gender, mood (values only).
     Paths share a board coordinate system and use the active tool's contact
@@ -200,8 +228,11 @@ def generate_trajectories(
     labels = generate_path("Věk:\nPohlaví:\nNálada:", **options)
     value_points = generate_path("\n".join(values), **options)
     # Include curve sampling error in the clearance to the permanent ink.
-    left = max(p[0] for p in labels) + curve_tolerance + label_gap + eraser_width / 2
-    right = left + values_width
+    left = (
+        max(p[0] for p in labels)
+        + (curve_tolerance + label_gap + eraser_width / 2) * MM_TO_M
+    )
+    right = left + values_width * MM_TO_M
     # Use the entire bundled font's vertical bounds, including diacritics and
     # descenders, so previous values are erased even when new ones are shorter.
     font_file = Path(__file__).with_name("fonts") / "ReliefSingleLineSVG-Regular.svg"
@@ -209,8 +240,8 @@ def generate_trajectories(
     if face is None:
         raise ValueError("SVG is missing the font-face element")
     _, min_y, _, max_y = map(float, face.attrib["bbox"].split())
-    scale = letter_height / float(face.attrib["cap-height"])
-    bottom = min_y * scale - 2 * letter_height * line_spacing
+    scale = letter_height / float(face.attrib["cap-height"]) * MM_TO_M
+    bottom = min_y * scale - 2 * letter_height * line_spacing * MM_TO_M
     top = max_y * scale
     value_points = [(x + left, y, z) for x, y, z in value_points]
     if any(not (left <= x <= right and bottom <= y <= top) for x, y, _ in value_points):
@@ -218,22 +249,25 @@ def generate_trajectories(
             "Values exceed the fixed writing area; increase values_width or reduce letter_height"
         )
 
-    rows = max(1, math.ceil((top - bottom) / (eraser_width / 2)))
+    rows = max(1, math.ceil((top - bottom) / (eraser_width * MM_TO_M / 2)))
     corners = []
     for row in range(rows + 1):
         y = top - (top - bottom) * row / rows
         start, end = (left, right) if row % 2 == 0 else (right, left)
         corners.extend([(start, y), (end, y)])
-    erase = [(left, top, pen_up), (left, top, 0.0)]
+    pen_up_m = pen_up * MM_TO_M
+    max_segment_m = None if max_segment_length is None else max_segment_length * MM_TO_M
+    erase = [(left, top, pen_up_m), (left, top, 0.0)]
     for (x0, y0), (x1, y1) in itertools.pairwise(corners):
-        steps = max(1, math.ceil(math.hypot(x1 - x0, y1 - y0) / max_segment_length))
+        steps = _line_steps(math.hypot(x1 - x0, y1 - y0), max_segment_m)
         erase.extend(
             (x0 + (x1 - x0) * step / steps, y0 + (y1 - y0) * step / steps, 0.0)
             for step in range(1, steps)
         )
         erase.append((x1, y1, 0.0))
-    erase.append((*corners[-1], pen_up))
+    erase.append((*corners[-1], pen_up_m))
     return {
+        "units": "m",
         "labels": labels,
         "values": value_points,
         "erase": erase,
@@ -243,7 +277,7 @@ def generate_trajectories(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Text to XYZ trajectories in mm (CSV or JSON)"
+        description="Text to XYZ trajectories in metres (CSV or JSON); input lengths in mm"
     )
     parser.add_argument("text", help=r"Text; \n starts a new line")
     parser.add_argument(
@@ -256,8 +290,17 @@ def main():
     parser.add_argument("--line-spacing", type=float, default=1.5)
     parser.add_argument("--space-factor", type=float, default=2.0)
     parser.add_argument("--pen-up", type=float, default=20.0)
-    parser.add_argument("--max-segment-length", type=float, default=15.0)
-    parser.add_argument("--curve-tolerance", type=float, default=0.1)
+    parser.add_argument(
+        "--max-segment-length",
+        type=float,
+        help="Optional contact segment length limit (mm); default: endpoints on straight lines",
+    )
+    parser.add_argument(
+        "--curve-tolerance",
+        type=float,
+        default=0.5,
+        help="Maximum curve approximation error (mm; default: 0.5)",
+    )
     parser.add_argument(
         "--all-paths",
         action="store_true",
@@ -304,11 +347,20 @@ def main():
     except ValueError as error:
         parser.error(str(error))
     with args.output.open("w", encoding="utf-8", newline="") as output:
-        if args.all_paths:
+        if isinstance(result, dict):
             json.dump(result, output, ensure_ascii=False, indent=2)
         else:
             csv.writer(output).writerows(result)
     print(f"Saved '{args.output}'.")
+    if isinstance(result, dict):
+        print(
+            "Points: "
+            + ", ".join(
+                f"{name}={len(result[name])}" for name in ("labels", "values", "erase")
+            )
+        )
+    else:
+        print(f"Points: {len(result)}")
 
 
 if __name__ == "__main__":

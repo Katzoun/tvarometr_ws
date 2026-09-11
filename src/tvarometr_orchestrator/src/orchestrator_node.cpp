@@ -16,10 +16,11 @@
 #include "behaviortree_cpp/loggers/groot2_publisher.h"
 #include "behaviortree_ros2/ros_node_params.hpp"
 #include "rclcpp/rclcpp.hpp"
-#include "tvarometr_orchestrator/generate_drawing.hpp"
+#include "tvarometr_orchestrator/generate_trajectories.hpp"
 #include "tvarometr_orchestrator/lifecycle_nodes.hpp"
 #include "tvarometr_orchestrator/log_message.hpp"
 #include "tvarometr_orchestrator/mock_action.hpp"
+#include "tvarometr_orchestrator/mock_inference.hpp"
 #include "tvarometr_orchestrator/operator_input.hpp"
 #include "tvarometr_orchestrator/run_inference.hpp"
 
@@ -48,9 +49,11 @@ int main(int argc, char ** argv)
   BT::RosNodeParams inference_params(node, "/inference_node/run_inference");
   factory.registerNodeType<tvarometr_orchestrator::RunInference>("RunInference", inference_params);
 
-  BT::RosNodeParams drawing_params(node, "/drawing_node/generate_drawing");
-  factory.registerNodeType<tvarometr_orchestrator::GenerateDrawing>(
-    "GenerateDrawing", drawing_params);
+  // Plain geometry, a couple of milliseconds, so the library's one-second
+  // default timeout is left alone.
+  BT::RosNodeParams trajectory_params(node, "/trajectory_node/generate_trajectories");
+  factory.registerNodeType<tvarometr_orchestrator::GenerateTrajectories>(
+    "GenerateTrajectories", trajectory_params);
 
   // Configure on the inference node loads half a gigabyte of weights and the
   // service answers only once it is done, so the library's one-second default
@@ -73,6 +76,8 @@ int main(int argc, char ** argv)
   factory.registerNodeType<tvarometr_orchestrator::IsAbortClear>("IsAbortClear", &operator_input);
   factory.registerNodeType<tvarometr_orchestrator::WaitForStart>("WaitForStart", &operator_input);
   factory.registerNodeType<tvarometr_orchestrator::MockAction>("MockAction", node->get_logger());
+  factory.registerNodeType<tvarometr_orchestrator::MockInference>(
+    "MockInference", node->get_logger());
 
   BT::Tree tree;
   try {

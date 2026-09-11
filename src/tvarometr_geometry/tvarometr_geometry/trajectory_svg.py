@@ -42,8 +42,8 @@ def _path_data(points, contact=True):
             connected = False
             continue
         if not connected:
-            commands.append(f"M {start[0]:.9g},{-start[1]:.9g}")
-        commands.append(f"L {end[0]:.9g},{-end[1]:.9g}")
+            commands.append(f"M {start[0]:.9g},{-start[1] or 0:.9g}")
+        commands.append(f"L {end[0]:.9g},{-end[1] or 0:.9g}")
         connected = True
     return " ".join(commands)
 
@@ -62,26 +62,36 @@ def trajectories_to_svg(data: dict, *, grid_step=50.0, show_travel=False) -> str
     Physical SVG dimensions in mm match the viewBox dimensions. The Y axis
     is inverted for SVG so text retains the generator's upward-positive Y.
     Eraser footprint size is absent from JSON; only its centerline is shown.
+    units="m" is converted to mm; legacy JSON without units uses mm.
     """
     if not math.isfinite(grid_step) or grid_step <= 0:
         raise ValueError("grid_step must be finite and positive")
     if not isinstance(data, dict):
         raise TypeError("Expected a JSON object with labels, values and erase")
+    units = data.get("units", "mm")
+    if units not in ("m", "mm"):
+        raise ValueError("Unsupported units: expected 'm' or 'mm'")
+    to_mm = 1000.0 if units == "m" else 1.0
     positions = []
+    paths = {}
     for name in COLORS:
         points = data.get(name)
         if not isinstance(points, list):
             raise TypeError(f"{name} must be a list of [x, y, z] points")
+        paths[name] = []
         for index, point in enumerate(points):
             if not _numbers(point, 3) or point[2] < 0:
                 raise ValueError(
                     f"Invalid {name}[{index}]: expected finite x, y, z with z >= 0"
                 )
-            positions.append(point[:2])
+            converted = tuple(coordinate * to_mm for coordinate in point)
+            paths[name].append(converted)
+            positions.append(converted[:2])
     bounds = data.get("values_bounds")
     if bounds is not None:
         if not _numbers(bounds, 4) or bounds[0] > bounds[2] or bounds[1] > bounds[3]:
             raise ValueError("Invalid values_bounds: expected [xmin, ymin, xmax, ymax]")
+        bounds = [coordinate * to_mm for coordinate in bounds]
         positions.extend([bounds[:2], bounds[2:]])
     if not positions:
         raise ValueError("No points or bounds to visualize")
@@ -178,7 +188,7 @@ def trajectories_to_svg(data: dict, *, grid_step=50.0, show_travel=False) -> str
         _element(
             layer,
             "path",
-            d=_path_data(data[name]),
+            d=_path_data(paths[name]),
             fill="none",
             stroke=COLORS[name],
             stroke_width=0.45 if name == "erase" else 0.9,
@@ -192,7 +202,7 @@ def trajectories_to_svg(data: dict, *, grid_step=50.0, show_travel=False) -> str
             travel,
             "path",
             id=f"travel-{name}",
-            d=_path_data(data[name], False),
+            d=_path_data(paths[name], False),
             fill="none",
             stroke="#94a3b8",
             stroke_width=0.3,

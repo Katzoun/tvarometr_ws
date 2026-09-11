@@ -25,10 +25,11 @@ find_package(robot_control_msgs REQUIRED)
 find_package(tvarometr_interfaces REQUIRED)
 
 add_executable(orchestrator_node
-  src/generate_drawing.cpp
+  src/generate_trajectories.cpp
   src/lifecycle_nodes.cpp
   src/log_message.cpp
   src/mock_action.cpp
+  src/mock_inference.cpp
   src/operator_input.cpp
   src/orchestrator_node.cpp
   src/run_inference.cpp

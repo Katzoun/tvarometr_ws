@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  The whole run. Every step of the cycle is still a MockAction: it reports
-  RUNNING for duration_ms and then whatever `succeed` says. What is being
-  designed here is the shape - when a cycle starts, what guards it, where it
-  loops - not yet what any step does.
+  The whole run. The steps of the cycle are still stand-ins: MockAction reports
+  RUNNING for duration_ms and then whatever `succeed` says, and MockInference
+  writes made-up attributes. What is being designed here is the shape - when a
+  cycle starts, what guards it, where it loops - not yet what any step does.
 
   A step becomes real by renaming it. <MockAction name="RunInference"/> turns
   into <RunInference attributes="{attributes}"/>; the orchestrator already
@@ -17,9 +17,9 @@
 
       <!-- Once, before anyone can ask for a run. The two managed nodes have to
            be active or nothing downstream answers, so they are brought up here
-           rather than by hand from a second terminal. The drawing node is not
-           among them - it holds no resource, so it is a plain node that is
-           ready as soon as it is running.
+           rather than by hand from a second terminal. The trajectory node is
+           not among them - it holds no resource, so it is a plain node that
+           is ready as soon as it is running.
 
            Each follows the same shape: ask whether it is already active, and
            only if it is not, configure and activate it. That makes restarting
@@ -88,10 +88,11 @@
                      the reactive branch above it would ask twice a second for
                      as long as a run lasts.
 
-                     The drawing node cannot be checked this way and is not
-                     worth a check of its own: if it is gone, GenerateDrawing
-                     fails and the Fallback above brings the tree back to
-                     waiting - later than this, but harmlessly. -->
+                     The trajectory node cannot be checked this way and is not
+                     worth a check of its own: if it is gone,
+                     GenerateTrajectories fails and the Fallback above brings
+                     the tree back to waiting - later than this, but
+                     harmlessly. -->
                 <IsNodeActive service_name="/inference_node/get_state"/>
                 <IsNodeActive service_name="/robot_controller/get_state"/>
 
@@ -108,10 +109,25 @@
 
                 <!-- The full model pass runs once, on a frame that is already
                      framed well - the centring loop reads a cheaper
-                     detection. -->
-                <MockAction name="RunInference" duration_ms="1500"/>
+                     detection.
 
-                <MockAction name="GenerateDrawing" duration_ms="800"/>
+                     Faked for now. MockInference writes the same message on
+                     the same port the real node would, so everything below can
+                     be built and watched with no camera and no GPU. Edit the
+                     attributes here to draw a different face; swapping in the
+                     real thing is <RunInference attributes="{attributes}"/>. -->
+                <MockInference attributes="{attributes}"
+                               age="32" gender="male" emotion="happiness"/>
+
+                <!-- Real, and the first step of the cycle that is. All
+                     three paths come back at once and all three land on the
+                     blackboard; which of them the robot actually draws is
+                     decided below, and is still to be written. -->
+                <GenerateTrajectories attributes="{attributes}"
+                                      labels="{labels}"
+                                      values="{values}"
+                                      erase="{erase}"/>
+
                 <MockAction name="DrawPath" duration_ms="6000"/>
                 <!-- Same arm, other tool centre point: no mechanical change. -->
                 <MockAction name="ErasePath" duration_ms="4000"/>

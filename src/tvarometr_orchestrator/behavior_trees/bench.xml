@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The cycle on its own, for working on a laptop.
+
+  Same steps as tvarometr.xml with the two managed nodes taken out: no bring-up
+  and no per-cycle check that they are still active. What is left needs only
+  the trajectory node, so the operator keys, the abort latch and the real
+  geometry can all be exercised with no camera, no GPU and no robot.
+
+  Not the tree a run uses. Nothing here checks that the robot is in a state to
+  move, which is exactly what tvarometr.xml exists to do.
+
+  Pick it with the orchestrator's `tree_file` parameter; the command is in
+  VYVOJ.md.
+-->
+<root BTCPP_format="4" main_tree_to_execute="Bench">
+  <BehaviorTree ID="Bench">
+    <KeepRunningUntilFailure>
+      <Sequence name="cycle">
+
+        <LogMessage message="Bench. S starts a run, E aborts, Q acknowledges an abort."/>
+        <WaitForStart/>
+
+        <Fallback name="run_or_give_up">
+          <ReactiveSequence name="guarded">
+            <IsAbortClear/>
+
+            <Sequence name="run">
+              <MockAction name="MoveToPhotoPose" duration_ms="2000"/>
+              <MockAction name="CentreFace" duration_ms="4000"/>
+
+              <MockInference attributes="{attributes}"
+                             age="32" gender="male" emotion="happiness"/>
+
+              <GenerateTrajectories attributes="{attributes}"
+                                    labels="{labels}"
+                                    values="{values}"
+                                    erase="{erase}"/>
+
+              <MockAction name="DrawPath" duration_ms="6000"/>
+              <MockAction name="ErasePath" duration_ms="4000"/>
+            </Sequence>
+          </ReactiveSequence>
+
+          <LogMessage message="Run ended early. Back to waiting."/>
+        </Fallback>
+      </Sequence>
+    </KeepRunningUntilFailure>
+  </BehaviorTree>
+</root>

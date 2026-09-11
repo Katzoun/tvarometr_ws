@@ -1,7 +1,7 @@
 // Driving and checking the managed nodes the run depends on.
 //
 // Which node either one talks to is the `service_name` port, so one registered
-// type serves the inference node, the drawing node and the robot driver alike.
+// type serves the inference node and the robot driver alike.
 
 #ifndef TVAROMETR_ORCHESTRATOR__LIFECYCLE_NODES_HPP_
 #define TVAROMETR_ORCHESTRATOR__LIFECYCLE_NODES_HPP_
