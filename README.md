@@ -199,6 +199,14 @@ work on both at once, open the repo in a second window and pick the other one;
 closing a window leaves the containers running. See the
 [VS Code multi-container workflow](https://code.visualstudio.com/remote/advancedcontainers/connect-multiple-containers).
 
+If the container already exists from the host - `up -d --build` in *First run*
+above starts one - remove it first: `docker compose -f docker-compose.dev.yml
+rm -sf orchestrator` (or `vision`). VS Code reuses an existing container as-is
+rather than recreating it, and only its own container adds the volume the VS
+Code Server install unpacks into; reusing one that lacks it fails with a
+confusing `rmdir: Directory not empty` deep in the "Starting Dev Container"
+log.
+
 There is no dev container for the driver here, on purpose - it has one in its
 own repository.
 

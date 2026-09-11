@@ -16,6 +16,15 @@ ENV DEBIAN_FRONTEND=noninteractive \
     # /root/.config isn't writable here and ultralytics would relocate anyway
     YOLO_CONFIG_DIR=/tmp/Ultralytics
 
+# Canonical's own archive answers at about a megabyte a second from here, and
+# security.ubuntu.com does not answer at all; the ROS install below pulls a
+# few hundred megabytes through both. A country mirror carries jammy-security
+# too and saturates the line instead. Swap it if you are not in Europe.
+RUN sed -i \
+    -e 's|http://archive.ubuntu.com|http://cz.archive.ubuntu.com|g' \
+    -e 's|http://security.ubuntu.com|http://cz.archive.ubuntu.com|g' \
+    /etc/apt/sources.list
+
 # --- Base OS + locale --------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
         locales curl gnupg2 lsb-release software-properties-common ca-certificates \
