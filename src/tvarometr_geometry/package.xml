@@ -14,7 +14,7 @@
        driver's repository, same as for the orchestrator. -->
   <depend>robot_control_msgs</depend>
 
-  <!-- Hershey-Fonts, which the drawing node vectorises text with, is not
+  <!-- svg.path, which the drawing node vectorises text with, is not
        declared here: rosdep has no rule for it. It arrives by pip, from
        docker/requirements-orchestrator.txt. -->
 

@@ -1,7 +1,9 @@
 # Pip packages for the orchestrator container.
 #
-# Short on purpose: this side of the system is ROS and C++, and the one thing
-# here is a pure-Python font that apt and rosdep do not carry.
+# Python dependencies for the text trajectory generators alongside ROS and C++.
 
-# The drawing node vectorises the text it writes with this.
+# Retained for the legacy master_pkg generators.
 Hershey-Fonts
+
+# The geometry text generator reads the bundled single-line SVG font.
+svg.path==7.0

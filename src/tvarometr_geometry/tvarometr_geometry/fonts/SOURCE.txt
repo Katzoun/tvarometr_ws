@@ -1,0 +1,5 @@
+Relief SingleLine SVG, unmodified upstream font.
+https://github.com/isdat-type/Relief-SingleLine
+Revision: 01dfc5779ec1e9e4b288d96c6c96c23bfccbaf9d
+File: fonts/open_svg/ReliefSingleLineSVG-Regular.svg
+License: SIL Open Font License 1.1; see OFL.txt in this directory.
