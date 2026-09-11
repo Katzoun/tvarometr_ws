@@ -1,8 +1,6 @@
 from setuptools import find_packages, setup
-import os
-from glob import glob
 
-package_name = 'tvarometr_inference'
+package_name = 'tvarometr_geometry'
 
 setup(
     name=package_name,
@@ -11,19 +9,18 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
-        (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='Tomas Janousek',
     maintainer_email='tomas.janousek02@gmail.com',
-    description='Face detection with age, gender and emotion estimation',
+    description='Turning what the camera found into coordinates the robot can go to',
     license='MIT',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'inference_node_exec = tvarometr_inference.inference_node:main',
+            'centring_node_exec = tvarometr_geometry.centring_node:main',
+            'drawing_node_exec = tvarometr_geometry.drawing_node:main',
         ],
     },
 )

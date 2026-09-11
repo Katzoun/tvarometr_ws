@@ -42,11 +42,36 @@ docker compose -f docker-compose.dev.yml --profile vision --profile robot stop
 V prostředí **orchestrator**:
 
 ```bash
-ros2 launch tvarometr_orchestrator orchestrator.launch.py
+ros2 run tvarometr_orchestrator orchestrator_node
 ```
 
-Strom proběhne jednou a proces s ním skončí — není to démon, pouštíš ho, když je
-co kreslit. Zatím je to kostra s jediným logovacím uzlem.
+Nejdřív strom vezme managed uzly — inference a ovladač robota — a nakonfiguruje
+a aktivuje je. Co už aktivní je, nechá být, takže restart orchestrátoru
+neznamená znovunačítání vah. Když některý uzel neběží, bring-up selže a proces
+skončí; to je záměr, bez nich není co spouštět.
+
+Kreslení a centrování managed nejsou — nedrží žádný zdroj, takže stačí, aby
+běžely. V prostředí **orchestrator** je pustíš vedle stromu:
+
+```bash
+ros2 run tvarometr_geometry drawing_node_exec
+ros2 run tvarometr_geometry centring_node_exec
+```
+
+Pak strom čeká na operátora: **S** spustí běh, **E** ho přeruší a vrátí strom
+zpátky k čekání. Přerušení se zapamatuje — další **S** je odmítnuté, dokud ho
+nekvituješ klávesou **Q**. Na začátku každého cyklu se ještě ověří, že jsou
+uzly pořád aktivní.
+
+Samotné kroky cyklu jsou zatím mockované, takže proběhne bez kamery i bez
+robota — ladí se tvar stromu, ne jednotlivé kroky.
+
+Proto `ros2 run` a ne `ros2 launch`: launch nepouští terminál dovnitř, takže by
+se klávesy k uzlu nedostaly.
+
+Na hostiteli si můžeš pustit **Groot2** a přes *Monitor* se připojit na
+`localhost:1667` — uvidíš strom tikat živě. Kontejner je na hostitelské síti,
+takže se nic nemapuje.
 
 V prostředí **vision**:
 
@@ -54,8 +79,9 @@ V prostředí **vision**:
 ros2 launch tvarometr_inference vision.launch.py device:=cuda:0 use_camera:=false
 ```
 
-Uzel naběhne ve stavu `unconfigured` a nemá načtené váhy. Konfigurace je načte,
-což chvíli trvá, aktivace mu pak dovolí přijímat goaly:
+Uzel naběhne ve stavu `unconfigured` a nemá načtené váhy. Do aktivního stavu
+ho obvykle vezme orchestrátor sám, ale ručně to jde taky — hodí se, když
+chceš sítě zkoušet bez stromu:
 
 ```bash
 ros2 lifecycle set /inference_node configure
@@ -68,6 +94,9 @@ Sítě pustíš na poslední snímek přes action:
 ros2 action send_goal /inference_node/run_inference \
     tvarometr_interfaces/action/RunInference {}
 ```
+
+Vision kontejner už kreslení neobsahuje — je to čistá geometrie bez GPU, takže
+se přestěhovalo do `tvarometr_geometry` vedle orchestrátoru.
 
 Ovladač robota spustíš z jeho vlastního kontejneru, postup je v jeho README.
 Oba kontejnery běží na síti hostitele se stejným `ROS_DOMAIN_ID`, takže se

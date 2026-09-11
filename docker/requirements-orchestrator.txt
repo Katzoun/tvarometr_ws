@@ -1,0 +1,7 @@
+# Pip packages for the orchestrator container.
+#
+# Short on purpose: this side of the system is ROS and C++, and the one thing
+# here is a pure-Python font that apt and rosdep do not carry.
+
+# The drawing node vectorises the text it writes with this.
+Hershey-Fonts

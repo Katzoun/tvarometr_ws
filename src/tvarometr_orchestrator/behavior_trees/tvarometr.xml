@@ -1,13 +1,129 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  The run, end to end. Still partial: the drawing and the robot arrive as their
-  nodes are written, and this is where they get sequenced.
+  The whole run. Every step of the cycle is still a MockAction: it reports
+  RUNNING for duration_ms and then whatever `succeed` says. What is being
+  designed here is the shape - when a cycle starts, what guards it, where it
+  loops - not yet what any step does.
+
+  A step becomes real by renaming it. <MockAction name="RunInference"/> turns
+  into <RunInference attributes="{attributes}"/>; the orchestrator already
+  registers that node, so nothing is rebuilt.
+
+  Set succeed="false" on a step to watch the branch that handles its failure.
 -->
 <root BTCPP_format="4" main_tree_to_execute="Tvarometr">
   <BehaviorTree ID="Tvarometr">
-    <Sequence name="run">
-      <LogMessage message="Asking the camera for a face"/>
-      <RunInference attributes="{attributes}"/>
+    <Sequence name="orchestrator">
+
+      <!-- Once, before anyone can ask for a run. The two managed nodes have to
+           be active or nothing downstream answers, so they are brought up here
+           rather than by hand from a second terminal. The drawing node is not
+           among them - it holds no resource, so it is a plain node that is
+           ready as soon as it is running.
+
+           Each follows the same shape: ask whether it is already active, and
+           only if it is not, configure and activate it. That makes restarting
+           this process cheap - it leaves nodes that are already up alone, which
+           matters because configuring the inference node reloads half a
+           gigabyte of weights.
+
+           ForceSuccess on configure covers the node that is configured but not
+           active: configure refuses, and activate is what decides. A genuine
+           configure failure is not lost - it surfaces as the activate failing
+           right after it, and the node itself logged the reason. -->
+      <Sequence name="bring_up">
+        <LogMessage message="Bringing the managed nodes up. This can take a while."/>
+
+        <Fallback name="inference_up">
+          <IsNodeActive service_name="/inference_node/get_state"/>
+          <Sequence>
+            <ForceSuccess>
+              <ChangeLifecycleState service_name="/inference_node/change_state"
+                                    transition="configure"/>
+            </ForceSuccess>
+            <ChangeLifecycleState service_name="/inference_node/change_state"
+                                  transition="activate"/>
+          </Sequence>
+        </Fallback>
+
+        <Fallback name="driver_up">
+          <IsNodeActive service_name="/robot_controller/get_state"/>
+          <Sequence>
+            <ForceSuccess>
+              <ChangeLifecycleState service_name="/robot_controller/change_state"
+                                    transition="configure"/>
+            </ForceSuccess>
+            <ChangeLifecycleState service_name="/robot_controller/change_state"
+                                  transition="activate"/>
+          </Sequence>
+        </Fallback>
+      </Sequence>
+
+      <!-- Ticks the cycle again for as long as it keeps succeeding, which is
+           for as long as the process lives: a run that ends early is caught
+           below, so the only way out is Ctrl+C. -->
+      <KeepRunningUntilFailure>
+        <Sequence name="cycle">
+
+          <LogMessage message="Ready. S starts a run, E aborts, Q acknowledges an abort."/>
+          <WaitForStart/>
+
+          <!-- The catch that makes an abort a return to waiting. Whatever ended
+               the run early - E, a node that went away, or a step out of
+               retries - lands on the log line below, which succeeds, so the
+               cycle succeeds and comes round to WaitForStart again. -->
+          <Fallback name="run_or_give_up">
+
+            <!-- Reactive, so IsAbortClear is re-ticked on every pass through
+                 the tree rather than once at the start. The moment it fails,
+                 whichever step is running below is halted. -->
+            <ReactiveSequence name="guarded">
+              <IsAbortClear/>
+
+              <Sequence name="run">
+
+                <!-- A node can die, or be taken down the lifecycle by hand,
+                     between one run and the next. Checked once per cycle, here
+                     in a plain Sequence: IsNodeActive is a service call, so in
+                     the reactive branch above it would ask twice a second for
+                     as long as a run lasts.
+
+                     The drawing node cannot be checked this way and is not
+                     worth a check of its own: if it is gone, GenerateDrawing
+                     fails and the Fallback above brings the tree back to
+                     waiting - later than this, but harmlessly. -->
+                <IsNodeActive service_name="/inference_node/get_state"/>
+                <IsNodeActive service_name="/robot_controller/get_state"/>
+
+                <MockAction name="MoveToPhotoPose" duration_ms="2000"/>
+
+                <!-- One step, because the loop that frames the face belongs in
+                     a node of its own: it wants the camera's rate rather than
+                     the tick rate, and the gains and the convergence test are
+                     control state, not blackboard state. It reports RUNNING
+                     while it closes in, FAILURE when it runs out of time or
+                     finds nobody. Its feedback is what tells an operator how it
+                     is doing. -->
+                <MockAction name="CentreFace" duration_ms="4000"/>
+
+                <!-- The full model pass runs once, on a frame that is already
+                     framed well - the centring loop reads a cheaper
+                     detection. -->
+                <MockAction name="RunInference" duration_ms="1500"/>
+
+                <MockAction name="GenerateDrawing" duration_ms="800"/>
+                <MockAction name="DrawPath" duration_ms="6000"/>
+                <!-- Same arm, other tool centre point: no mechanical change. -->
+                <MockAction name="ErasePath" duration_ms="4000"/>
+              </Sequence>
+
+            </ReactiveSequence>
+
+            <LogMessage message="Run ended early. Back to waiting."/>
+          </Fallback>
+        </Sequence>
+      </KeepRunningUntilFailure>
+
     </Sequence>
   </BehaviorTree>
 </root>

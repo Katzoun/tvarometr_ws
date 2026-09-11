@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         clangd \
         gdb \
         python3-colcon-common-extensions \
+        python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
 # Manifests only: the source itself is mounted at run time. robot_control_msgs
@@ -21,6 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # built - otherwise the COPY below fails.
 COPY src/tvarometr_orchestrator/package.xml /tmp/deps/tvarometr_orchestrator/package.xml
 COPY src/tvarometr_interfaces/package.xml /tmp/deps/tvarometr_interfaces/package.xml
+COPY src/tvarometr_geometry/package.xml /tmp/deps/tvarometr_geometry/package.xml
 COPY src/abb_rws2_ros2_driver/robot_control_msgs/package.xml /tmp/deps/robot_control_msgs/package.xml
 COPY src/behaviortree_ros2/behaviortree_ros2/package.xml /tmp/deps/behaviortree_ros2/package.xml
 COPY src/behaviortree_ros2/btcpp_ros2_interfaces/package.xml /tmp/deps/btcpp_ros2_interfaces/package.xml
@@ -37,6 +39,10 @@ RUN apt-get update \
 RUN set -eux; \
     lib="$(find /opt/ros/${ROS_DISTRO}/lib -mindepth 2 -name 'libbehaviortree_cpp.so' -print -quit)"; \
     if [ -n "$lib" ]; then ln -s "$lib" /opt/ros/${ROS_DISTRO}/lib/libbehaviortree_cpp.so; fi
+
+# The drawing node's font, which rosdep has no rule for.
+COPY docker/requirements-orchestrator.txt /tmp/requirements-orchestrator.txt
+RUN pip3 install --no-cache-dir -r /tmp/requirements-orchestrator.txt
 
 WORKDIR /workspace
 COPY docker/colcon-defaults-orchestrator.yaml /colcon-defaults.yaml

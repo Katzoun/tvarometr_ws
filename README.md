@@ -31,13 +31,16 @@ Image acquisition and neural network inference.
 
 - **Nodes:** `usb_cam` (from the `usb_cam` package) streams the webcam,
   configured in `config/usb_cam.yaml`; `inference_node_exec` keeps the newest
-  frame and runs the models over it; `drawing_node_exec` turns a face analysis
-  into the path to draw. Both are managed nodes, and the launch file starts
-  only the first one.
+  frame and runs the models over it. The inference node is managed - configure
+  is what loads the weights - and the launch file starts both.
 - **Topics:** `/image_raw` (sensor_msgs/Image), the camera stream.
 - **Actions:** `inference_node/run_inference` answers with a `FaceAttributes` -
-  age, gender, emotion and where the face sat in the frame;
-  `drawing_node/generate_drawing` turns that into a `PoseArray` to draw.
+  age, gender, emotion and where the face sat in the frame.
+- **Services:** `inference_node/detect_face` runs the detector alone and
+  answers with the bounding box. It exists for the centring loop, which needs
+  the geometry many times over and none of the model outputs - a service rather
+  than an action because it is one pass with nothing to report and nothing
+  worth cancelling.
   Labels are the models' own English ones; the Czech wording is decided in the
   drawing node.
 
@@ -52,9 +55,55 @@ The BehaviorTree.CPP tree that drives a run: ask the camera for a face, turn the
 analysis into a path, hand the path to the robot. C++, because that is what
 BT.CPP is - version 4, the one Groot2 speaks to.
 
-Only a skeleton so far. It loads `behavior_trees/tvarometr.xml`, ticks it once
-and exits; the tree holds a single log line. The nodes that call the three
-actions arrive one at a time.
+The tree is a skeleton being designed shape first: it waits for the operator,
+runs a cycle, wipes the board and comes back to waiting. Every step is still a
+`MockAction` that pretends to work, so the whole cycle runs with no camera and
+no robot. `RunInference` and `GenerateDrawing` are written and registered; a
+step becomes real by renaming it in the tree file, which needs no rebuild.
+
+The tree brings the managed nodes up before it will take a run: it configures
+and activates the inference node and the robot driver, skips whichever is
+active already, and checks both again at the top of every cycle. The drawing
+and centring nodes are not managed and need only to be running. Bringing them up from the tree rather than by hand is what makes a
+restart of this process cheap - nothing reloads that is already loaded.
+
+While the trigger is a keyboard, run it with `ros2 run` rather than
+`ros2 launch` - launch does not pass a terminal through. `S` starts a run and
+`E` aborts one, which halts the running step and returns the tree to waiting.
+The abort then latches: `S` is refused until `Q` acknowledges it, so a stopped
+cell cannot be restarted without somebody saying it is clear.
+
+That abort cancels the ROS action; on a motion goal the driver still lets the
+queued points run out, so it is an orderly stop and not an emergency stop.
+
+Groot2 can attach to a running tree and watch it tick, on the port the
+`groot2_port` parameter names (1667 by default). The container is on the host
+network, so a Groot2 on the host connects with nothing to map. A port already
+in use only costs the visualisation - the run carries on without it.
+
+#### `tvarometr_geometry`
+
+The two steps that turn what the camera found into coordinates the robot goes
+to. Neither needs a GPU or the weights, so both run in the orchestrator
+container - which is what keeps the whole system except the cameras and the
+networks workable on a machine with no NVIDIA card.
+
+Python, because these are where the numbers get tuned: a gain, a deadband, a
+letter height. Changing one and trying again should not mean a rebuild.
+
+- **`drawing_node_exec`** turns a face analysis into the path to draw. Plain
+  geometry over the text, so it is a plain node, not a managed one - there is
+  nothing to load and nothing to release.
+  - **Actions:** `drawing_node/generate_drawing` answers with a `PoseArray`.
+- **`centring_node_exec`** frames a face before the analysis pass runs. The
+  camera rides on the flange, so this walks the arm until the face sits where
+  it should - a child's face starts low in the frame, and that is what the
+  correction is for. It talks to the `detect_face` service and the driver's
+  motion action, and nothing else.
+
+  A skeleton so far: it comes up, reports whether it can reach both of those,
+  and does nothing else. The loop itself is next, and the tree calls it through
+  a `CentreFace` action that does not exist yet.
 
 #### `master_pkg` (reference only)
 The pre-rebuild system: state machine, its own RWS client, path generation and
@@ -324,11 +373,15 @@ tvarometr_ws/
 │   │   ├── config/usb_cam.yaml    # resolution, framerate, device path
 │   │   └── tvarometr_inference/
 │   │       ├── inference_node.py
-│   │       ├── drawing_node.py    # face analysis -> the path to draw
 │   │       └── vendor/            # MiVOLO and ResEmoteNet, vendored as-is
+│   ├── tvarometr_geometry/        # No GPU needed (orchestrator container)
+│   │   └── tvarometr_geometry/
+│   │       ├── drawing_node.py    # face analysis -> the path to draw
+│   │       ├── path_generator.py  # text -> line segments
+│   │       └── centring_node.py   # walks the arm until the face is framed
 │   ├── tvarometr_interfaces/      # msg/srv/action definitions
 │   ├── tvarometr_orchestrator/    # BehaviorTree.CPP orchestrator (C++)
-│   │   ├── src/orchestrator_node.cpp
+│   │   ├── include/ and src/      # one BT node per pair, main is separate
 │   │   └── behavior_trees/        # the trees themselves, as XML
 │   ├── abb_rws2_ros2_driver/      # ABB driver, imported by vcstool, git-ignored
 │   └── master_pkg/                # Pre-rebuild system, reference only

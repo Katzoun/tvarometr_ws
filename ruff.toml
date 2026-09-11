@@ -53,6 +53,7 @@ split-on-trailing-comma = false
 known-first-party = [
     "robot_control",
     "robot_control_msgs",
+    "tvarometr_geometry",
     "tvarometr_inference",
     "tvarometr_interfaces",
 ]

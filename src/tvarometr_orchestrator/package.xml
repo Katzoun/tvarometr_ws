@@ -16,6 +16,8 @@
   <!-- The ROS 2 bindings: RosActionNode and friends. No apt package provides
        them for Humble, so they are imported from source -->
   <depend>behaviortree_ros2</depend>
+  <depend>geometry_msgs</depend>
+  <depend>lifecycle_msgs</depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_action</depend>
 

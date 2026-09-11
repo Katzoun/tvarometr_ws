@@ -17,16 +17,29 @@ find_package(ament_cmake REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(behaviortree_cpp REQUIRED)
 find_package(behaviortree_ros2 REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(lifecycle_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(robot_control_msgs REQUIRED)
 find_package(tvarometr_interfaces REQUIRED)
 
-add_executable(orchestrator_node src/orchestrator_node.cpp)
+add_executable(orchestrator_node
+  src/generate_drawing.cpp
+  src/lifecycle_nodes.cpp
+  src/log_message.cpp
+  src/mock_action.cpp
+  src/operator_input.cpp
+  src/orchestrator_node.cpp
+  src/run_inference.cpp
+)
+target_include_directories(orchestrator_node PRIVATE include)
 ament_target_dependencies(orchestrator_node
   ament_index_cpp
   behaviortree_cpp
   behaviortree_ros2
+  geometry_msgs
+  lifecycle_msgs
   rclcpp
   rclcpp_action
   robot_control_msgs

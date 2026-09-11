@@ -42,7 +42,8 @@ from PIL import Image as PILImage
 import numpy as np
 
 from tvarometr_interfaces.action import RunInference
-from tvarometr_inference.attributes import build_face_attributes
+from tvarometr_interfaces.srv import DetectFace
+from tvarometr_inference.attributes import build_face_attributes, build_region_of_interest
 
 class InferenceNode(LifecycleNode):
     def __init__(self):
@@ -120,6 +121,17 @@ class InferenceNode(LifecycleNode):
             execute_callback=self.execute_cb,
             goal_callback=self.goal_cb,
             cancel_callback=lambda goal_handle: CancelResponse.ACCEPT,
+            callback_group=self.cb_group,
+        )
+
+        # The centring loop wants the geometry many times over and none of the
+        # model outputs, so the detector is reachable on its own. A service and
+        # not an action: one pass over one frame, nothing to report on the way
+        # and nothing worth cancelling.
+        self.detect_service = self.create_service(
+            DetectFace,
+            f'{self.NODE_NAME}/detect_face',
+            self.detect_cb,
             callback_group=self.cb_group,
         )
 
@@ -253,6 +265,57 @@ class InferenceNode(LifecycleNode):
             f'{result.attributes.emotion} ({result.attributes.emotion_confidence:.3f})')
         self.logger.info(result.message)
         return result
+
+    # ============= SERVICE =============
+
+    def detect_cb(self, request, response) -> DetectFace.Response:
+        """Where the face is, without the models that say anything about it.
+
+        Deliberately quiet on the happy path: a centring loop calls this many
+        times a second and a log line per call would bury everything else.
+
+        Assumes callers do not overlap with a RunInference goal - the tree
+        sequences them - because both reach the same detector object.
+        """
+        if not self._active:
+            response.success = False
+            response.message = 'Node is not active'
+            return response
+
+        frame = self._latest_frame
+        if frame is None:
+            response.success = False
+            response.message = (
+                f'No frame received on {self.image_topic} yet - '
+                'is the camera driver running?')
+            return response
+
+        try:
+            img = self.bridge.imgmsg_to_cv2(frame, desired_encoding='bgr8')
+        except Exception as e:
+            response.success = False
+            response.message = f'Error converting image: {e}'
+            self.logger.error(response.message)
+            return response
+
+        detections = self.detector.predict(img)
+        face_inds = detections.get_bboxes_inds("face")
+        if not face_inds:
+            response.success = False
+            response.message = 'No face detected'
+            return response
+
+        height, width = img.shape[:2]
+        response.face_bbox = build_region_of_interest(
+            detections.get_bbox_by_ind(face_inds[0]), (width, height))
+        response.image_width = width
+        response.image_height = height
+        response.success = True
+
+        roi = response.face_bbox
+        response.message = (
+            f'face at ({roi.x_offset}, {roi.y_offset}), {roi.width}x{roi.height}')
+        return response
 
     # Output order of our affectnet7_model.pth checkpoint. Measured, not assumed:
     # benchmark/ scores this order at 43.6% on a balanced AffectNet val sample and

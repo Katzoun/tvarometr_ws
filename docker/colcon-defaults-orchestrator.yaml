@@ -15,12 +15,12 @@ build:
   # what clangd reads.
   cmake-args: [-DCMAKE_BUILD_TYPE=RelWithDebInfo, -DCMAKE_EXPORT_COMPILE_COMMANDS=ON]
   packages-select: [btcpp_ros2_interfaces, behaviortree_ros2, robot_control_msgs,
-                    tvarometr_interfaces, tvarometr_orchestrator]
+                    tvarometr_interfaces, tvarometr_orchestrator, tvarometr_geometry]
 test:
   base-paths: [/workspace/src]
   build-base: /opt/colcon_ws/build
   install-base: /opt/colcon_ws/install
   packages-select: [btcpp_ros2_interfaces, behaviortree_ros2, robot_control_msgs,
-                    tvarometr_interfaces, tvarometr_orchestrator]
+                    tvarometr_interfaces, tvarometr_orchestrator, tvarometr_geometry]
 test-result:
   test-result-base: /opt/colcon_ws/build

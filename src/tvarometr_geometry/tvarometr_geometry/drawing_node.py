@@ -8,20 +8,23 @@ FaceAttributes message and you get the geometry back.
 The Czech wording lives here rather than in the vision node: FaceAttributes
 carries the models' own English labels, and this is the point where the text that
 actually gets written is decided.
+
+Not a managed node, unlike the inference node and the driver. There is nothing
+to acquire or release here - no weights, no session, no device - so a lifecycle
+would be five callbacks guarding a boolean that guards itself.
 """
 
 import rclpy
-from rclpy.action import ActionServer, CancelResponse, GoalResponse
+from rclpy.action import ActionServer, CancelResponse
 from rclpy.action.server import ServerGoalHandle
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
-from rclpy.lifecycle import Node as LifecycleNode
-from rclpy.lifecycle import State, TransitionCallbackReturn
+from rclpy.node import Node
 
 from geometry_msgs.msg import Pose, PoseArray
 
 from tvarometr_interfaces.action import GenerateDrawing
-from tvarometr_inference.path_generator import generate_path
+from tvarometr_geometry.path_generator import generate_path
 
 EMOTION_CS = {
     "anger": "nastvany",
@@ -36,7 +39,7 @@ EMOTION_CS = {
 GENDER_CS = {"male": "muz", "female": "zena"}
 
 
-class DrawingNode(LifecycleNode):
+class DrawingNode(Node):
 
     def __init__(self):
         super().__init__('drawing_node')
@@ -54,49 +57,18 @@ class DrawingNode(LifecycleNode):
         # which is x,y,z,w = 1,0,0,0 the ROS way round.
         self.declare_parameter('pen_orientation', [1.0, 0.0, 0.0, 0.0])
 
-        self._active = False
         self.action_server = ActionServer(
             self,
             GenerateDrawing,
             f'{self.NODE_NAME}/generate_drawing',
             execute_callback=self.execute_cb,
-            goal_callback=self.goal_cb,
             cancel_callback=lambda goal_handle: CancelResponse.ACCEPT,
             callback_group=self.cb_group,
         )
 
-        self.logger.info('Unconfigured - configure and activate to accept goals')
-
-    # ============= LIFECYCLE =============
-
-    def on_configure(self, state: State) -> TransitionCallbackReturn:
-        self.logger.info('Configured')
-        return TransitionCallbackReturn.SUCCESS
-
-    def on_activate(self, state: State) -> TransitionCallbackReturn:
-        self._active = True
-        self.logger.info('Active - accepting drawing goals')
-        return super().on_activate(state)
-
-    def on_deactivate(self, state: State) -> TransitionCallbackReturn:
-        self._active = False
-        return super().on_deactivate(state)
-
-    def on_cleanup(self, state: State) -> TransitionCallbackReturn:
-        self._active = False
-        return TransitionCallbackReturn.SUCCESS
-
-    def on_shutdown(self, state: State) -> TransitionCallbackReturn:
-        self._active = False
-        return TransitionCallbackReturn.SUCCESS
+        self.logger.info('Ready - accepting drawing goals')
 
     # ============= ACTION =============
-
-    def goal_cb(self, goal_request) -> GoalResponse:
-        if not self._active:
-            self.logger.error('Goal rejected: node is not active')
-            return GoalResponse.REJECT
-        return GoalResponse.ACCEPT
 
     def compose_text(self, attributes) -> str:
         gender = GENDER_CS.get(attributes.gender, attributes.gender)
