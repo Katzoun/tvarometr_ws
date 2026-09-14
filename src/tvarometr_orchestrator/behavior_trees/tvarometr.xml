@@ -15,36 +15,26 @@
   <BehaviorTree ID="Tvarometr">
     <Sequence name="orchestrator">
 
-      <!-- Once, before anyone can ask for a run. The two managed nodes have to
-           be active or nothing downstream answers, so they are brought up here
-           rather than by hand from a second terminal. The trajectory node is
-           not among them - it holds no resource, so it is a plain node that
-           is ready as soon as it is running.
+      <!-- Once, before anyone can ask for a run. The robot driver is a managed
+           node and has to be active or no motion goal is accepted, so it is
+           brought up here rather than by hand from a second terminal.
 
-           Each follows the same shape: ask whether it is already active, and
-           only if it is not, configure and activate it. That makes restarting
-           this process cheap - it leaves nodes that are already up alone, which
-           matters because configuring the inference node reloads half a
-           gigabyte of weights.
+           The inference node is managed too, and belongs here in the same shape
+           - it is left out while the vision stack is not part of the run, and
+           MockInference stands in for it below. The trajectory node never
+           belongs here: it holds no resource, so it is a plain node that is
+           ready as soon as it is running.
+
+           Ask whether the driver is already active, and only if it is not,
+           configure and activate it. That makes restarting this process cheap:
+           a driver that is up keeps its robot session.
 
            ForceSuccess on configure covers the node that is configured but not
            active: configure refuses, and activate is what decides. A genuine
            configure failure is not lost - it surfaces as the activate failing
            right after it, and the node itself logged the reason. -->
       <Sequence name="bring_up">
-        <LogMessage message="Bringing the managed nodes up. This can take a while."/>
-
-        <Fallback name="inference_up">
-          <IsNodeActive service_name="/inference_node/get_state"/>
-          <Sequence>
-            <ForceSuccess>
-              <ChangeLifecycleState service_name="/inference_node/change_state"
-                                    transition="configure"/>
-            </ForceSuccess>
-            <ChangeLifecycleState service_name="/inference_node/change_state"
-                                  transition="activate"/>
-          </Sequence>
-        </Fallback>
+        <LogMessage message="Bringing the robot driver up."/>
 
         <Fallback name="driver_up">
           <IsNodeActive service_name="/robot_controller/get_state"/>
@@ -93,8 +83,16 @@
                      GenerateTrajectories fails and the Fallback above brings
                      the tree back to waiting - later than this, but
                      harmlessly. -->
-                <IsNodeActive service_name="/inference_node/get_state"/>
                 <IsNodeActive service_name="/robot_controller/get_state"/>
+
+                <!-- Mastership, motors on, RAPID started. Here and not in the
+                     bring-up, for two reasons. The motors come on when somebody
+                     asks for a run, not when this process starts. And a motion
+                     that fails stops RAPID - asking again at the top of every
+                     run is what lets the next S recover instead of failing the
+                     same way. When everything is already up it only answers
+                     that it is. -->
+                <RobotRequest command="make_robot_ready"/>
 
                 <MockAction name="MoveToPhotoPose" duration_ms="2000"/>
 
@@ -128,9 +126,24 @@
                                       values="{values}"
                                       erase="{erase}"/>
 
-                <MockAction name="DrawPath" duration_ms="6000"/>
-                <!-- Same arm, other tool centre point: no mechanical change. -->
-                <MockAction name="ErasePath" duration_ms="4000"/>
+                <!-- Only the values for now: the labels that go onto a clean
+                     board are still to be decided in the tree. -->
+                <ExecutePath name="DrawValues" path="{values}"
+                             tool="tooltuzka" wobj="wobjtabletop"/>
+
+                <!-- The values stay on the board for as long as the visitor
+                     wants to read them, and the operator says when that is.
+                     Still inside the guard, so E works while it waits. -->
+                <LogMessage message="Drawn. C erases the board, E aborts."/>
+                <WaitForContinue/>
+
+                <!-- The eraser sits on the same flange as the pen, so erasing
+                     is only another tool name, with no tool change and
+                     nothing to wait for in between. For now both use the
+                     pen's tooldata until the eraser has one of its own - with
+                     a real pen fitted, this sweep draws over the values. -->
+                <ExecutePath name="EraseValues" path="{erase}"
+                             tool="tooltuzka" wobj="wobjtabletop"/>
               </Sequence>
 
             </ReactiveSequence>

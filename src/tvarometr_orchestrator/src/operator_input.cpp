@@ -10,7 +10,7 @@ void readKeyboard(OperatorInput * input, rclcpp::Logger logger)
 {
   termios original{};
   if (tcgetattr(STDIN_FILENO, &original) != 0) {
-    RCLCPP_WARN(logger, "Not a terminal - S and E will not be read");
+    RCLCPP_WARN(logger, "Not a terminal - the operator keys will not be read");
     return;
   }
 
@@ -32,6 +32,12 @@ void readKeyboard(OperatorInput * input, rclcpp::Logger logger)
       } else {
         input->start = true;
       }
+    } else if (key == 'c' || key == 'C') {
+      if (input->abort) {
+        RCLCPP_WARN(logger, "Still aborted - press Q to acknowledge first");
+      } else {
+        input->proceed = true;
+      }
     } else if (key == 'e' || key == 'E') {
       input->abort = true;
       RCLCPP_WARN(logger, "Abort requested - press Q to acknowledge");
@@ -51,21 +57,22 @@ BT::NodeStatus IsAbortClear::tick()
   return input_->abort ? BT::NodeStatus::FAILURE : BT::NodeStatus::SUCCESS;
 }
 
-/// A key pressed while the last cycle was running is not a request for another.
-BT::NodeStatus WaitForStart::onStart()
+/// A key pressed before the tree got here is not an answer to this pause - an
+/// S hit during the last run, or a C hit while the robot was still drawing.
+BT::NodeStatus WaitForKey::onStart()
 {
-  input_->start = false;
+  *pressed_ = false;
   return BT::NodeStatus::RUNNING;
 }
 
-BT::NodeStatus WaitForStart::onRunning()
+BT::NodeStatus WaitForKey::onRunning()
 {
-  if (!input_->start) {
+  if (!*pressed_) {
     return BT::NodeStatus::RUNNING;
   }
-  input_->start = false;
-  // Nothing to clear: the keyboard refuses to raise `start` while the abort is
-  // latched, so arriving here already means the guard is clear.
+  *pressed_ = false;
+  // Nothing else to clear: the keyboard refuses to raise either flag while the
+  // abort is latched, so arriving here already means the guard is clear.
   return BT::NodeStatus::SUCCESS;
 }
 

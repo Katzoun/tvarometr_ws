@@ -45,10 +45,11 @@ V prostředí **orchestrator**:
 ros2 run tvarometr_orchestrator orchestrator_node
 ```
 
-Nejdřív strom vezme managed uzly — inference a ovladač robota — a nakonfiguruje
-a aktivuje je. Co už aktivní je, nechá být, takže restart orchestrátoru
-neznamená znovunačítání vah. Když některý uzel neběží, bring-up selže a proces
-skončí; to je záměr, bez nich není co spouštět.
+Nejdřív strom nakonfiguruje a aktivuje ovladač robota. Když už aktivní je,
+nechá ho být, takže restart orchestrátoru nerozbije jeho spojení s robotem.
+Když ovladač neběží, bring-up selže a proces skončí; to je záměr, bez něj není
+co spouštět. Inference se zatím nezapíná — vision teď v běhu není a místo ní
+strom dosadí falešné atributy.
 
 Generování trajektorií a centrování managed nejsou — nedrží žádný zdroj, takže stačí, aby
 běžely. V prostředí **orchestrator** je pustíš vedle stromu:
@@ -59,24 +60,14 @@ ros2 run tvarometr_geometry centring_node_exec
 ```
 
 Pak strom čeká na operátora: **S** spustí běh, **E** ho přeruší a vrátí strom
-zpátky k čekání. Přerušení se zapamatuje — další **S** je odmítnuté, dokud ho
-nekvituješ klávesou **Q**. Na začátku každého cyklu se ještě ověří, že jsou
+zpátky k čekání. Po napsání hodnot běh počká a **C** ho pustí dál ke smazání.
+Přerušení se zapamatuje — **S** i **C** jsou odmítnuté, dokud ho nekvituješ
+klávesou **Q**. Na začátku každého cyklu se ještě ověří, že jsou
 uzly pořád aktivní.
 
-Kroky cyklu jsou zatím až na generování trajektorií mockované, takže cyklus
-proběhne bez kamery i bez robota — ladí se tvar stromu, ne jednotlivé kroky.
-
-Bring-up ale inferenci i ovladače vyžaduje, a když neběží, strom skončí hned.
-Na práci u notebooku je proto druhý strom, `bench.xml`: stejný cyklus bez
-bring-upu a bez kontroly aktivních uzlů, takže mu stačí `trajectory_node`.
-
-```bash
-TREE=$(ros2 pkg prefix --share tvarometr_orchestrator)/behavior_trees/bench.xml
-ros2 run tvarometr_orchestrator orchestrator_node --ros-args -p tree_file:=$TREE
-```
-
-Ostrý běh jede vždycky z `tvarometr.xml` — `bench.xml` nekontroluje nic o stavu
-robota.
+Reálné jsou zatím generování trajektorií, příprava robota, kreslení hodnot na
+tabuli a jejich mazání, ostatní kroky jsou mockované. Běh tedy potřebuje
+`trajectory_node` a ovladač robota, kameru ani GPU ne.
 
 Proto `ros2 run` a ne `ros2 launch`: launch nepouští terminál dovnitř, takže by
 se klávesy k uzlu nedostaly.

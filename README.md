@@ -58,21 +58,26 @@ BT.CPP is - version 4, the one Groot2 speaks to.
 The tree is a skeleton being designed shape first: it waits for the operator,
 runs a cycle, wipes the board and comes back to waiting. Every step is still a
 `MockAction` that pretends to work, so the whole cycle runs with no camera and
-no robot, except for `GenerateTrajectories`, which is real. `RunInference` is
-written and registered too; a step becomes real by renaming it in the tree
-file, which needs no rebuild.
+no robot, except for `GenerateTrajectories` and `ExecutePath`, which are real.
+`RunInference` is written and registered too; a step becomes real by renaming
+it in the tree file, which needs no rebuild.
 
-The tree brings the managed nodes up before it will take a run: it configures
-and activates the inference node and the robot driver, skips whichever is
-active already, and checks both again at the top of every cycle. The trajectory
-and centring nodes are not managed and need only to be running. Bringing them up from the tree rather than by hand is what makes a
-restart of this process cheap - nothing reloads that is already loaded.
+The tree brings the robot driver up before it will take a run: it configures
+and activates it unless it is active already, and checks it again at the top of
+every cycle, where it also asks the driver to make the robot ready. The
+inference node is managed too but is not brought up while the vision stack is
+not part of the run - MockInference stands in for it. The trajectory and
+centring nodes are not managed and need only to be running. Bringing the driver
+up from the tree rather than by hand is what makes a restart of this process
+cheap - a driver that is up keeps its robot session.
 
 While the trigger is a keyboard, run it with `ros2 run` rather than
 `ros2 launch` - launch does not pass a terminal through. `S` starts a run and
 `E` aborts one, which halts the running step and returns the tree to waiting.
-The abort then latches: `S` is refused until `Q` acknowledges it, so a stopped
-cell cannot be restarted without somebody saying it is clear.
+Once the values are drawn the run pauses, and `C` lets it go on to erase them -
+they stay up for as long as the visitor is reading. The abort latches: `S` and
+`C` are refused until `Q` acknowledges it, so a stopped cell cannot be restarted
+without somebody saying it is clear.
 
 That abort cancels the ROS action; on a motion goal the driver still lets the
 queued points run out, so it is an orderly stop and not an emergency stop.

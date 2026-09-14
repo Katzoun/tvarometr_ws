@@ -1,4 +1,4 @@
-// The operator's two keys, and the tree nodes that read them.
+// The operator's keys, and the tree nodes that read them.
 //
 // Scaffolding: a terminal is the fastest way to drive a skeleton, but the real
 // system gets a trigger that does not need somebody at a keyboard.
@@ -16,7 +16,7 @@
 namespace tvarometr_orchestrator
 {
 
-/// What the operator is asking for, as two flags the keyboard thread sets.
+/// What the operator is asking for, as flags the keyboard thread sets.
 ///
 /// `abort` latches: E raises it and only Q lowers it again. Leaning on S after
 /// a stop does nothing, which is the whole point - somebody has to look at the
@@ -24,14 +24,17 @@ namespace tvarometr_orchestrator
 struct OperatorInput
 {
   std::atomic<bool> start{false};
+  // C. Not `continue`, which is a keyword.
+  std::atomic<bool> proceed{false};
   std::atomic<bool> abort{false};
 };
 
-/// Reads S, E and Q from the terminal until ROS shuts down.
+/// Reads S, C, E and Q from the terminal until ROS shuts down.
 ///
-/// S asks for a run, E stops one, Q acknowledges a stop. Refusing S while the
-/// abort is latched happens here rather than in the tree: the tree only ever
-/// asks whether the guard is clear, and this is what keeps it that simple.
+/// S asks for a run, C lets a paused one go on, E stops one, Q acknowledges a
+/// stop. Refusing S and C while the abort is latched happens here rather than in
+/// the tree: the tree only ever asks whether the guard is clear, and this is
+/// what keeps it that simple.
 ///
 /// Takes the terminal out of line mode, so a key registers without Enter, and
 /// puts it back on the way out. Runs in its own thread because read() blocks
@@ -63,12 +66,17 @@ private:
   OperatorInput * input_;
 };
 
-/// Holds the cycle until the operator presses S.
-class WaitForStart : public BT::StatefulActionNode
+/// Holds the tree until the operator presses one particular key.
+///
+/// Which key is the flag it is built with, so one class serves every pause:
+/// registered once over `start` as WaitForStart and once over `proceed` as
+/// WaitForContinue.
+class WaitForKey : public BT::StatefulActionNode
 {
 public:
-  WaitForStart(const std::string & name, const BT::NodeConfig & config, OperatorInput * input)
-  : BT::StatefulActionNode(name, config), input_(input)
+  WaitForKey(
+    const std::string & name, const BT::NodeConfig & config, std::atomic<bool> * pressed)
+  : BT::StatefulActionNode(name, config), pressed_(pressed)
   {
   }
 
@@ -86,7 +94,7 @@ public:
   }
 
 private:
-  OperatorInput * input_;
+  std::atomic<bool> * pressed_;
 };
 
 }  // namespace tvarometr_orchestrator

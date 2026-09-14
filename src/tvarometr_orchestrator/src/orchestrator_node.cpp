@@ -16,12 +16,14 @@
 #include "behaviortree_cpp/loggers/groot2_publisher.h"
 #include "behaviortree_ros2/ros_node_params.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "tvarometr_orchestrator/execute_path.hpp"
 #include "tvarometr_orchestrator/generate_trajectories.hpp"
 #include "tvarometr_orchestrator/lifecycle_nodes.hpp"
 #include "tvarometr_orchestrator/log_message.hpp"
 #include "tvarometr_orchestrator/mock_action.hpp"
 #include "tvarometr_orchestrator/mock_inference.hpp"
 #include "tvarometr_orchestrator/operator_input.hpp"
+#include "tvarometr_orchestrator/robot_request.hpp"
 #include "tvarometr_orchestrator/run_inference.hpp"
 
 int main(int argc, char ** argv)
@@ -55,6 +57,23 @@ int main(int argc, char ** argv)
   factory.registerNodeType<tvarometr_orchestrator::GenerateTrajectories>(
     "GenerateTrajectories", trajectory_params);
 
+  // The timeout covers two waits. Accepting a goal costs the driver a round trip
+  // to the controller to check RAPID is idle, which can outlast the one-second
+  // default. And an abort blocks the tick while the cancel is acknowledged and
+  // the result collected - the arm is still running out its queue then, so this
+  // is also how long the tree stays frozen before it gives up on that result.
+  BT::RosNodeParams motion_params(node, "/robot_controller/robot_robtarget_move");
+  motion_params.server_timeout = std::chrono::seconds(3);
+  factory.registerNodeType<tvarometr_orchestrator::ExecutePath>("ExecutePath", motion_params);
+
+  // make_robot_ready is the slow one: when RAPID is not running it turns the
+  // motors on, resets the program pointer and starts it, with a second's settle
+  // after each. The library's one-second default would fail it every time it
+  // has real work to do.
+  BT::RosNodeParams request_params(node, "/robot_controller/controller_request");
+  request_params.server_timeout = std::chrono::seconds(15);
+  factory.registerNodeType<tvarometr_orchestrator::RobotRequest>("RobotRequest", request_params);
+
   // Configure on the inference node loads half a gigabyte of weights and the
   // service answers only once it is done, so the library's one-second default
   // would call every bring-up a timeout.
@@ -74,7 +93,10 @@ int main(int argc, char ** argv)
   // by renaming it in the XML.
   tvarometr_orchestrator::OperatorInput operator_input;
   factory.registerNodeType<tvarometr_orchestrator::IsAbortClear>("IsAbortClear", &operator_input);
-  factory.registerNodeType<tvarometr_orchestrator::WaitForStart>("WaitForStart", &operator_input);
+  factory.registerNodeType<tvarometr_orchestrator::WaitForKey>(
+    "WaitForStart", &operator_input.start);
+  factory.registerNodeType<tvarometr_orchestrator::WaitForKey>(
+    "WaitForContinue", &operator_input.proceed);
   factory.registerNodeType<tvarometr_orchestrator::MockAction>("MockAction", node->get_logger());
   factory.registerNodeType<tvarometr_orchestrator::MockInference>(
     "MockInference", node->get_logger());
