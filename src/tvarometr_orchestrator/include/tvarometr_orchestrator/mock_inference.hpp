@@ -1,4 +1,4 @@
-// Scaffolding: stands in for the vision stack, so the steps after it can be
+// Scaffolding: stands in for the inference stack, so the steps after it can be
 // built and watched without a camera or a GPU.
 
 #ifndef TVAROMETR_ORCHESTRATOR__MOCK_INFERENCE_HPP_

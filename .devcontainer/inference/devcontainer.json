@@ -1,13 +1,17 @@
-// GPU vision development. Run git lfs pull on the host before starting
+// GPU inference development. Run git lfs pull on the host before starting
 // inference, so the model weights are real files and not LFS pointers.
 {
-    "name": "vision",
+    "name": "inference",
 
     "dockerComposeFile": [
         "../../docker-compose.dev.yml"
     ],
-    "service": "vision",
-    "runServices": ["vision"],
+    "service": "inference",
+    "runServices": ["inference"],
+
+    // Runs on the host: lets root in the container use the host display, for
+    // rqt_image_view. Harmless where there is no display.
+    "initializeCommand": "xhost +SI:localuser:root >/dev/null 2>&1 || true",
     "workspaceFolder": "/workspace",
 
     // Closing the window keeps the container up, so its build survives.

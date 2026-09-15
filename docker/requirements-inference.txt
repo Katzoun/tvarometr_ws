@@ -1,4 +1,4 @@
-# Python deps for the GPU vision container (camera capture + inference).
+# Python deps for the GPU inference container (camera capture + inference).
 #
 # torch/torchvision stay on cu121. Before bumping them, check that
 # torch.cuda.get_arch_list() still covers both machines we run on:

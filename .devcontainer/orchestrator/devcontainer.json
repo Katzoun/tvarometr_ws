@@ -11,7 +11,7 @@
     "runServices": ["orchestrator"],
     "workspaceFolder": "/workspace",
 
-    // Closing the window must not stop vision in another one.
+    // Closing the window must not stop inference in another one.
     "shutdownAction": "none",
 
     // The image carries dependencies only, so build the packages once on create.

@@ -10,7 +10,7 @@ inference_node:
     # not fatal - the node warns and falls back to the CPU, which is slow.
     device: cuda:0
 
-    # Where the weights live. The vision container mounts the repo's models/
+    # Where the weights live. The inference container mounts the repo's models/
     # here; outside the container, point it at that directory instead.
     models_dir: /opt/tvarometr/models
 

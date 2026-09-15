@@ -9,7 +9,7 @@
 namespace tvarometr_orchestrator
 {
 
-/// Asks the vision node to run the models over its newest camera frame.
+/// Asks the inference node to run the models over its newest camera frame.
 ///
 /// The action carries no goal fields - the node always works on whatever it
 /// last received - so everything here is about the answer, which lands on the

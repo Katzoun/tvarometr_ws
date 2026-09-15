@@ -1,4 +1,4 @@
-# Vision container: webcam capture + age/gender/emotion inference (GPU).
+# Inference container: webcam capture + age/gender/emotion inference (GPU).
 # Dependencies only - source and model weights are mounted by Compose.
 
 # "base" rather than "cudnn8-runtime": the torch wheels ship their own cuBLAS
@@ -41,6 +41,7 @@ RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
         ros-humble-ros-base \
         ros-humble-cv-bridge \
         ros-humble-usb-cam \
+        ros-humble-rqt-image-view \
         ros-humble-sensor-msgs \
         ros-humble-geometry-msgs \
         ros-humble-std-msgs \
@@ -59,11 +60,11 @@ RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
 # torch pulls in, and the mismatch breaks colcon with canonicalize_version().
 RUN pip3 install --no-cache-dir --upgrade pip setuptools packaging
 
-COPY docker/requirements-vision.txt /tmp/requirements-vision.txt
-RUN pip3 install --no-cache-dir -r /tmp/requirements-vision.txt
+COPY docker/requirements-inference.txt /tmp/requirements-inference.txt
+RUN pip3 install --no-cache-dir -r /tmp/requirements-inference.txt
 
 WORKDIR /workspace
-COPY docker/colcon-defaults-vision.yaml /colcon-defaults.yaml
+COPY docker/colcon-defaults-inference.yaml /colcon-defaults.yaml
 COPY docker/ros-env.sh /ros-env.sh
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh /ros-env.sh \

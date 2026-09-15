@@ -18,7 +18,7 @@
            brought up here rather than by hand from a second terminal.
 
            The inference node is managed too, and belongs here in the same shape
-           - it is left out while the vision stack is not part of the run, and
+           - it is left out while the inference stack is not part of the run, and
            MockInference stands in for it below. The trajectory node never
            belongs here: it holds no resource, so it is a plain node that is
            ready as soon as it is running.

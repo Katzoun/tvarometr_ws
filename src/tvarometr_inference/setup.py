@@ -20,7 +20,7 @@ setup(
     maintainer_email='tomas.janousek02@gmail.com',
     description='Face detection with age, gender and emotion estimation',
     license='MIT',
-    tests_require=['pytest'],
+    extras_require={'test': ['pytest']},
     entry_points={
         'console_scripts': [
             'inference_node_exec = tvarometr_inference.inference_node:main',

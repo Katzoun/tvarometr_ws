@@ -1,0 +1,16 @@
+# V4L2 controls applied before usb_cam starts, top to bottom.
+# Names are the camera's own: v4l2-ctl -d /dev/video0 --list-ctrls-menus
+
+# Mains in Europe; stops fluorescent lights from banding.
+power_line_frequency: 1        # 0 off, 1 50 Hz, 2 60 Hz
+
+# The OBSBOT keeps its digital pan, tilt and zoom across restarts.
+zoom_absolute: 0
+pan_absolute: 0
+tilt_absolute: 0
+
+# Automatics for now. To lock them, switch the automatic off before its value:
+#   auto_exposure: 1, exposure_time_absolute: 100 / focus_automatic_continuous: 0, focus_absolute: 75
+white_balance_automatic: 1
+auto_exposure: 0               # on this camera 0 is auto, 1 manual
+focus_automatic_continuous: 1

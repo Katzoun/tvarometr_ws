@@ -1,7 +1,7 @@
 # Development stack. Three environments over one source tree:
 #
 #   orchestrator  the behaviour tree, CPU only - started by a plain `up -d`
-#   vision        camera and networks, wants an NVIDIA GPU  (--profile vision)
+#   inference     camera and networks, wants an NVIDIA GPU  (--profile inference)
 #   driver        the ABB driver, wants a robot             (--profile robot)
 #
 # Only the first two are developed here. The driver has its own repository and
@@ -35,14 +35,14 @@ services:
       - codex-home:/root/.codex
     command: sleep infinity
 
-  vision:
+  inference:
     # Wants an NVIDIA GPU, so a plain `up -d` leaves it alone.
-    profiles: [vision]
+    profiles: [inference]
     build:
       context: .
-      dockerfile: docker/vision.Dockerfile
-    image: tvarometr/vision:dev
-    container_name: tvarometr_vision_dev
+      dockerfile: docker/inference.Dockerfile
+    image: tvarometr/inference:dev
+    container_name: tvarometr_inference_dev
     network_mode: host
     # Fast DDS talks over shared memory; with a private /dev/shm other nodes
     # discover this one but no messages arrive.
@@ -55,10 +55,13 @@ services:
       PYTHONUNBUFFERED: "1"
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      # GUI tools draw on the host display. Host networking already shares the X
+      # socket; the host has to allow it with `xhost +SI:localuser:root`.
+      DISPLAY: ${DISPLAY:-:0}
     devices:
-      # Set CAMERA_DEVICE in .env for a real webcam. With the default, launch
-      # vision with use_camera:=false.
-      - ${CAMERA_DEVICE:-/dev/null}:/dev/video0
+      # The container will not start without this device. On a machine with no
+      # webcam, set CAMERA_DEVICE=/dev/null and launch with use_camera:=false.
+      - ${CAMERA_DEVICE:-/dev/video0}:/dev/video0
     deploy:
       resources:
         reservations:
@@ -69,7 +72,7 @@ services:
     volumes:
       - .:/workspace
       - ./models:/opt/tvarometr/models:ro
-      - vision-vscode-server:/root/.vscode-server
+      - inference-vscode-server:/root/.vscode-server
       - claude-home:/root/.claude
       - codex-home:/root/.codex
     command: sleep infinity
@@ -96,4 +99,4 @@ volumes:
   claude-home:
   codex-home:
   orchestrator-vscode-server:
-  vision-vscode-server:
+  inference-vscode-server:

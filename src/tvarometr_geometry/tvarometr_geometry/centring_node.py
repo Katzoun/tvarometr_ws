@@ -23,7 +23,7 @@ class CentringNode(Node):
     def __init__(self):
         super().__init__('centring_node')
 
-        # Named rather than hard-coded: the inference node answers in the vision
+        # Named rather than hard-coded: the inference node answers in the inference
         # container and the driver in its own, and either can be remapped.
         self.declare_parameter('detect_service', '/inference_node/detect_face')
         self.declare_parameter('motion_action', '/robot_controller/robot_robtarget_move')

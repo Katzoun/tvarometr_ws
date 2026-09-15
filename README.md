@@ -37,7 +37,7 @@ Four processes talk over ROS 2, spread over three containers:
 | --- | --- | --- |
 | `orchestrator` - the behaviour tree | `tvarometr_orchestrator` | orchestrator |
 | `trajectory_node`, `centring_node` | `tvarometr_geometry` | orchestrator |
-| `usb_cam`, `inference_node` | `tvarometr_inference` | vision (GPU) |
+| `usb_cam`, `inference_node` | `tvarometr_inference` | inference (GPU) |
 | `robot_controller` | `robot_control` (separate repo) | driver |
 
 ### `tvarometr_orchestrator`
@@ -79,7 +79,8 @@ loading, so they only need to be running.
 
 ### `tvarometr_inference`
 
-- **`usb_cam`** streams the webcam on `/image_raw`.
+- **`usb_cam`** streams the webcam on `/image_raw`. `camera.launch.py` sets the
+  camera's V4L2 controls first and then starts it; `inference.launch.py` includes it.
 - **`inference_node_exec`** is a managed node: configure loads the weights,
   activate starts accepting requests. It keeps only the newest frame.
   - `inference_node/run_inference` (action) runs YOLOv8 face detection, MiVOLO
@@ -88,7 +89,7 @@ loading, so they only need to be running.
   - `inference_node/detect_face` (service) runs the detector alone and returns
     the face bounding box - the cheap call the centring loop repeats.
 
-Weights live in `models/` (Git LFS) and are mounted into the vision container at
+Weights live in `models/` (Git LFS) and are mounted into the inference container at
 `/opt/tvarometr/models`:
 
 - `yolov8x_person_face.pt` - face detection
@@ -114,7 +115,7 @@ its production image and runs it.
 
 - Ubuntu 22.04 with a native Docker Engine - not Docker Desktop, which cannot
   pass the GPU through. `docker context ls` should show `default` as active.
-- NVIDIA GPU and NVIDIA Container Toolkit, for the vision container.
+- NVIDIA GPU and NVIDIA Container Toolkit, for the inference container.
 - Git LFS (`apt install git-lfs`) and vcstool (`apt install python3-vcstool`).
 - An ABB GoFa with RWS 2.0, or RobotStudio's virtual controller.
 
@@ -127,15 +128,15 @@ git clone https://github.com/Katzoun/tvarometr_ws.git
 cd tvarometr_ws
 git lfs install && git lfs pull       # weights; without LFS you get 130-byte pointers
 vcs import src < dependencies.repos   # the robot driver and behaviortree_ros2
-echo "CAMERA_DEVICE=/dev/video0" > .env
 ```
 
 The import has to come before any image build: the orchestrator image resolves
 dependencies from the driver's `robot_control_msgs` manifest. Both imported
 repositories are git-ignored here; `vcs pull src` updates them.
 
-`CAMERA_DEVICE` is mapped into the vision container when it is created, so set
-it first. See [Environment](#environment).
+The inference container expects the webcam at `/dev/video0` on the host and will
+not start without it. See [Environment](#environment) for a different device or
+none.
 
 ### Containers
 
@@ -144,10 +145,10 @@ it first. See [Environment](#environment).
 | Service | Needs | Builds | Profile |
 | --- | --- | --- | --- |
 | `orchestrator` | CPU only | `tvarometr_orchestrator`, `tvarometr_geometry`, `tvarometr_interfaces` | none |
-| `vision` | NVIDIA GPU | `tvarometr_inference`, `tvarometr_interfaces` | `vision` |
+| `inference` | NVIDIA GPU | `tvarometr_inference`, `tvarometr_interfaces` | `inference` |
 | `driver` | a robot | the driver's own production image | `robot` |
 
-`orchestrator` and `vision` bind-mount the repo at `/workspace` and idle; you
+`orchestrator` and `inference` bind-mount the repo at `/workspace` and idle; you
 start nodes from a terminal. `driver` starts the driver by itself.
 
 **From the host, always name the service.** A plain `up -d --build` also rebuilds
@@ -156,13 +157,13 @@ and recreates the orchestrator, which kills a VS Code window attached to it.
 ### VS Code
 
 Open the repo, run **Dev Containers: Reopen in Container** and pick
-**orchestrator** or **vision**. Only that service starts, its packages build on
+**orchestrator** or **inference**. Only that service starts, its packages build on
 create, and the window's terminals run inside it. For both, open a second window
 and pick the other one. Closing a window leaves its container running.
 
 VS Code will not attach to a container created from the host with `compose up`
 (it fails with `rmdir: Directory not empty`). Remove that one first with
-`docker compose -f docker-compose.dev.yml rm -sf orchestrator` (or `vision`).
+`docker compose -f docker-compose.dev.yml rm -sf orchestrator` (or `inference`).
 
 ### Command line
 
@@ -172,7 +173,7 @@ docker compose -f docker-compose.dev.yml exec orchestrator bash
 colcon build --symlink-install
 ```
 
-For vision, add `--profile vision` and use `vision` as the service name.
+For inference, add `--profile inference` and use `inference` as the service name.
 
 Every shell sources ROS and the built workspace through `docker/ros-env.sh`; in a
 shell that was open during a build, `source /opt/colcon_ws/install/setup.bash`.
@@ -204,11 +205,19 @@ ros2 run tvarometr_geometry trajectory_node_exec
 ros2 run tvarometr_geometry centring_node_exec     # not needed until centring is real
 ```
 
-### 3. Vision - vision container
+### 3. Inference - inference container
 
 ```bash
-ros2 launch tvarometr_inference vision.launch.py    # use_camera:=false without a webcam
+ros2 launch tvarometr_inference inference.launch.py   # use_camera:=false without a webcam
+ros2 launch tvarometr_inference camera.launch.py      # or the camera alone, for tuning it
+ros2 run rqt_image_view rqt_image_view /image_raw     # see what the camera sees
 ```
+
+GUI tools open on the host display. The container reaches the host X server
+through host networking, but the host has to let root in:
+`xhost +SI:localuser:root`. The inference dev container runs that on the host
+before it starts; after a new login, or for a container started from the command
+line, run it yourself.
 
 Until the tree brings inference up itself, drive it by hand:
 
@@ -249,14 +258,14 @@ packages each container builds, so a bare `colcon build` is enough. Build output
 survives a container restart and is gone after a rebuild.
 
 Tests: `colcon test --packages-select tvarometr_geometry` (orchestrator) or
-`tvarometr_inference` (vision), then `colcon test-result --verbose`.
+`tvarometr_inference` (inference container), then `colcon test-result --verbose`.
 
 | File | Role |
 | --- | --- |
-| `docker/orchestrator.Dockerfile`, `docker/vision.Dockerfile` | Dependencies only - no source, models or build. |
+| `docker/orchestrator.Dockerfile`, `docker/inference.Dockerfile` | Dependencies only - no source, models or build. |
 | `docker/requirements-*.txt` | Python pins; several are load-bearing and say why. |
 | `docker-compose.dev.yml` | Mounts, GPU, camera, network, profiles. |
-| `.devcontainer/orchestrator/`, `.devcontainer/vision/` | Which service VS Code attaches to, extensions, build on create. |
+| `.devcontainer/orchestrator/`, `.devcontainer/inference/` | Which service VS Code attaches to, extensions, build on create. |
 | `dependencies.repos` | Driver and behaviortree_ros2, for `vcs import`. |
 | `docker/colcon-defaults-*.yaml` | Colcon paths and packages per container. |
 | `docker/ros-env.sh`, `docker/entrypoint.sh` | Source ROS in every shell and in the container command. |
@@ -278,9 +287,15 @@ quaternion as `[qw,qx,qy,qz]`.
 
 ### Inference
 
-`tvarometr_inference/config/inference.yaml` - device, weights directory, image
-topic. `config/usb_cam.yaml` - resolution, framerate, video device. Both are read
-at startup; restart the launch after editing.
+All in `tvarometr_inference/config/`, read at startup - restart the launch after
+editing:
+
+- `inference.yaml` - device, weights directory, image topic.
+- `usb_cam.yaml` - video device, resolution, framerate.
+- `camera_controls.yaml` - exposure, focus, white balance and the rest, under the
+  names `v4l2-ctl -d /dev/video0 --list-ctrls-menus` shows. usb_cam 0.8 sets
+  these under older V4L2 names, so its own exposure and focus parameters do
+  nothing on this camera and it prints three harmless `unknown control` lines.
 
 ### Trajectories
 
@@ -289,19 +304,21 @@ column, eraser width, pen orientation. Set with `--ros-args -p name:=value`.
 
 ### Environment
 
-Optional `.env` in the repo root, read by Compose:
+Compose reads these from the host shell or from an optional `.env` in the repo
+root. The camera is mapped when the container is created, so rebuild the inference
+container after changing it.
 
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `ROS_DOMAIN_ID` | `42` | DDS domain for all three containers |
-| `CAMERA_DEVICE` | `/dev/null` | Host webcam passed to vision as `/dev/video0` |
+| `CAMERA_DEVICE` | `/dev/video0` | Host webcam passed to inference as `/dev/video0`; `/dev/null` on a machine without one |
 
 ## Roadmap
 
 Next, in order:
 
 1. **Inference on its own** - models on the GPU, a real frame from the webcam,
-   `RunInference` answering by hand in the vision container.
+   `RunInference` answering by hand in the inference container.
 2. **Inference in the tree** - bring the inference node up next to the driver,
    check it every run, and replace `MockInference` with `RunInference`.
 3. **Real photo pose** - jog the robot to it and write the joints into the tree.
@@ -324,7 +341,7 @@ tvarometr_ws/
 │   │   └── include/, src/          # one BT node per pair; orchestrator_node.cpp is main
 │   ├── tvarometr_geometry/         # trajectory and centring nodes (Python)
 │   ├── tvarometr_inference/        # camera and the networks (Python, GPU)
-│   │   ├── config/                 # inference.yaml, usb_cam.yaml
+│   │   ├── config/                 # inference.yaml, usb_cam.yaml, camera_controls.yaml
 │   │   └── tvarometr_inference/vendor/   # MiVOLO and ResEmoteNet, as-is
 │   ├── tvarometr_interfaces/       # msg, srv, action
 │   ├── abb_rws2_ros2_driver/       # imported by vcstool, git-ignored

@@ -1,4 +1,4 @@
-# Colcon settings for the vision container.
+# Colcon settings for the inference container.
 #
 # Two jobs. Generated files stay inside the container, outside the /workspace
 # bind mount, so a build never writes into the repository. And a bare

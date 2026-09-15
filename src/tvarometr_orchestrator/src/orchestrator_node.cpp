@@ -43,7 +43,7 @@ int main(int argc, char ** argv)
   BT::BehaviorTreeFactory factory;
   factory.registerNodeType<tvarometr_orchestrator::LogMessage>("LogMessage", node->get_logger());
 
-  // The action server lives in the vision container. Its default name is set
+  // The action server lives in the inference container. Its default name is set
   // here rather than in the tree, so the XML stays about behaviour.
   BT::RosNodeParams inference_params(node, "/inference_node/run_inference");
   factory.registerNodeType<tvarometr_orchestrator::RunInference>("RunInference", inference_params);

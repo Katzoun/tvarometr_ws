@@ -1,9 +1,10 @@
+# Image format only. Exposure, focus and the rest are in camera_controls.yaml:
+# usb_cam 0.8 sets them under V4L2 names this camera does not have.
 /**:
   ros__parameters:
     video_device: "/dev/video0"
 
-    # 1280x720 at 30 fps over MJPEG. Plain YUYV usually caps out around 10 fps at
-    # this resolution on cheap webcams, which makes the preview feel laggy.
+    # MJPEG, since raw YUYV on this camera stops at 640x480.
     image_width: 1280
     image_height: 720
     framerate: 30.0
@@ -12,8 +13,14 @@
     camera_name: "tvarometr_cam"
     frame_id: "camera"
 
-    # Leave the automatics on - the lighting at an event hall is nothing like
-    # what we would tune fixed values for.
-    autoexposure: true
-    autofocus: true
+    # -1 leaves the control alone, so camera_controls.yaml stays in charge.
+    brightness: -1
+    contrast: -1
+    saturation: -1
+    sharpness: -1
+    gain: -1
+    focus: -1
+    # These go out under the old names and fail harmlessly ("unknown control").
     auto_white_balance: true
+    autoexposure: true
+    autofocus: false
