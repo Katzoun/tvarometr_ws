@@ -1,375 +1,291 @@
 # Tvarometr - Automated Face Analysis and Robot Drawing System
 
-An automated system for capturing, analyzing, and robotically rendering human
-faces at public events. Computer vision and neural networks detect a face and
-predict age, gender and emotion; the result becomes a trajectory that an ABB
-GoFa robot draws over the RWS 2.0 interface.
+An ABB GoFa photographs a visitor, neural networks estimate their age, gender and
+emotion, and the robot writes the result on a whiteboard - then wipes it for the
+next visitor. Built for events such as open days at Brno University of
+Technology, Faculty of Mechanical Engineering.
 
-Built for events such as open days at Brno University of Technology, Faculty of
-Mechanical Engineering.
-
-> Being rebuilt on branch `rebuild-docker-bt` towards a fully Dockerized system
-> with a BehaviorTree.CPP orchestrator. Development containers are the only
-> supported mode right now - there is no production image.
+> Being rebuilt on branch `rebuild-docker-bt`: Docker containers and a
+> BehaviorTree.CPP orchestrator. Development containers are the only supported
+> mode for now.
 
 **Česky: [rychlý start pro vývoj](VYVOJ.md).**
 
-## Workflow
+## How a run goes
 
-1. Webcam captures an image of a person
-2. Neural networks analyze face attributes (age, gender, emotion)
-3. The system generates a drawing trajectory from the analysis
-4. The trajectory goes to the ABB GoFa over RWS 2.0
-5. The robot draws
+The operator starts each run from the keyboard. One run is:
+
+1. Bring the robot to a photo pose.
+2. Centre the visitor's face in the camera.
+3. Estimate age, gender and emotion from one frame.
+4. Generate the paths: the fixed labels, this visitor's values, and the sweep
+   that wipes the values.
+5. Write the labels (only on the first run - they stay on the board), then the
+   values, and back off from the board.
+6. Wait until the operator says the visitor is done, then wipe the values and
+   back off again.
+
+The development proceeds from the end of this list backwards. Steps 1, 4, 5 and
+6 run for real against the robot; centring and inference are still faked in the
+tree. See [Roadmap](#roadmap).
 
 ## Architecture
 
-### ROS2 packages
+Four processes talk over ROS 2, spread over three containers:
 
-#### `tvarometr_inference`
-Image acquisition and neural network inference.
+| Node | Package | Container |
+| --- | --- | --- |
+| `orchestrator` - the behaviour tree | `tvarometr_orchestrator` | orchestrator |
+| `trajectory_node`, `centring_node` | `tvarometr_geometry` | orchestrator |
+| `usb_cam`, `inference_node` | `tvarometr_inference` | vision (GPU) |
+| `robot_controller` | `robot_control` (separate repo) | driver |
 
-- **Nodes:** `usb_cam` (from the `usb_cam` package) streams the webcam,
-  configured in `config/usb_cam.yaml`; `inference_node_exec` keeps the newest
-  frame and runs the models over it. The inference node is managed - configure
-  is what loads the weights - and the launch file starts both.
-- **Topics:** `/image_raw` (sensor_msgs/Image), the camera stream.
-- **Actions:** `inference_node/run_inference` answers with a `FaceAttributes` -
-  age, gender, emotion and where the face sat in the frame.
-- **Services:** `inference_node/detect_face` runs the detector alone and
-  answers with the bounding box. It exists for the centring loop, which needs
-  the geometry many times over and none of the model outputs - a service rather
-  than an action because it is one pass with nothing to report and nothing
-  worth cancelling.
-  Labels are the models' own English ones; the Czech wording is decided in the
-  drawing node.
+### `tvarometr_orchestrator`
 
-#### `robot_control`, `robot_control_msgs`
-The ABB robot driver and its interface definitions. They live in their own
-repository, [abb_rws2_ros2_driver](https://github.com/Katzoun/abb_rws2_ros2_driver),
-with their own containers, and are not built here. Its README documents the
-nodes, the motion actions and the request service.
+The BehaviorTree.CPP 4 tree in `behavior_trees/tvarometr.xml` drives everything
+else. C++, one BT node per header/source pair.
 
-#### `tvarometr_orchestrator`
-The BehaviorTree.CPP tree that drives a run: ask the camera for a face, turn the
-analysis into a path, hand the path to the robot. C++, because that is what
-BT.CPP is - version 4, the one Groot2 speaks to.
+- **Bring-up.** Before the first run the tree configures and activates the robot
+  driver, unless it is active already - so restarting the orchestrator keeps the
+  driver's robot session.
+- **Each run** checks the driver is still active, asks it to make the robot
+  ready (mastership, motors on, RAPID started), and then goes through the steps
+  above. `board_written` on the blackboard remembers whether the labels are
+  already up; it resets when the process restarts.
+- **Operator keys.** `S` starts a run. After the values are drawn the run waits
+  for `C` to wipe them. `E` aborts: it halts the running step and returns to
+  waiting. The abort latches - `S` and `C` are refused until `Q` acknowledges it.
+- An abort cancels the motion goal, but the driver lets the queued points run
+  out, so it is an orderly stop and not an emergency stop.
+- **Groot2** can attach to the running tree on port 1667 (`groot2_port`). The
+  containers are on the host network, so there is nothing to map.
 
-The tree is a skeleton being designed shape first: it waits for the operator,
-runs a cycle, wipes the board and comes back to waiting. Every step is still a
-`MockAction` that pretends to work, so the whole cycle runs with no camera and
-no robot, except for `GenerateTrajectories` and `ExecutePath`, which are real.
-`RunInference` is written and registered too; a step becomes real by renaming
-it in the tree file, which needs no rebuild.
+Stand-ins still in the tree: `MockAction name="CentreFace"` and `MockInference`,
+which writes made-up attributes to the same port `RunInference` would. The real
+`RunInference` node is already registered, so swapping it in is an XML edit.
 
-The tree brings the robot driver up before it will take a run: it configures
-and activates it unless it is active already, and checks it again at the top of
-every cycle, where it also asks the driver to make the robot ready. The
-inference node is managed too but is not brought up while the vision stack is
-not part of the run - MockInference stands in for it. The trajectory and
-centring nodes are not managed and need only to be running. Bringing the driver
-up from the tree rather than by hand is what makes a restart of this process
-cheap - a driver that is up keeps its robot session.
+### `tvarometr_geometry`
 
-While the trigger is a keyboard, run it with `ros2 run` rather than
-`ros2 launch` - launch does not pass a terminal through. `S` starts a run and
-`E` aborts one, which halts the running step and returns the tree to waiting.
-Once the values are drawn the run pauses, and `C` lets it go on to erase them -
-they stay up for as long as the visitor is reading. The abort latches: `S` and
-`C` are refused until `Q` acknowledges it, so a stopped cell cannot be restarted
-without somebody saying it is clear.
+Python, no GPU. Plain nodes, not managed ones - they hold nothing that needs
+loading, so they only need to be running.
 
-That abort cancels the ROS action; on a motion goal the driver still lets the
-queued points run out, so it is an orderly stop and not an emergency stop.
+- **`trajectory_node_exec`** answers `trajectory_node/generate_trajectories`
+  with three `PoseArray`s in metres: labels, values and the wipe. A service,
+  since it takes a couple of milliseconds. The Czech wording of the board text
+  is decided here. The text generator is described in `TRAJECTORIES.md`.
+- **`centring_node_exec`** will close the loop between the face detector and the
+  robot. So far it only checks it can reach `inference_node/detect_face` and the
+  driver's motion action.
 
-Groot2 can attach to a running tree and watch it tick, on the port the
-`groot2_port` parameter names (1667 by default). The container is on the host
-network, so a Groot2 on the host connects with nothing to map. A port already
-in use only costs the visualisation - the run carries on without it.
+### `tvarometr_inference`
 
-#### `tvarometr_geometry`
+- **`usb_cam`** streams the webcam on `/image_raw`.
+- **`inference_node_exec`** is a managed node: configure loads the weights,
+  activate starts accepting requests. It keeps only the newest frame.
+  - `inference_node/run_inference` (action) runs YOLOv8 face detection, MiVOLO
+    for age and gender and ResEmoteNet for emotion, and answers with
+    `FaceAttributes`. Labels are the models' English ones.
+  - `inference_node/detect_face` (service) runs the detector alone and returns
+    the face bounding box - the cheap call the centring loop repeats.
 
-The two steps that turn what the camera found into coordinates the robot goes
-to. Neither needs a GPU or the weights, so both run in the orchestrator
-container - which is what keeps the whole system except the cameras and the
-networks workable on a machine with no NVIDIA card.
+Weights live in `models/` (Git LFS) and are mounted into the vision container at
+`/opt/tvarometr/models`:
 
-Python, because these are where the numbers get tuned: a gain, a deadband, a
-letter height. Changing one and trying again should not mean a rebuild.
+- `yolov8x_person_face.pt` - face detection
+- `model_imdb_cross_person_4.22_99.46.pth.tar` - age and gender
+- `affectnet7_model.pth` - emotion
 
-- **`trajectory_node_exec`** turns a face analysis into the paths to draw.
-  Plain geometry over the text, so it is a plain node, not a managed one -
-  there is nothing to load and nothing to release.
-  - **Services:** `trajectory_node/generate_trajectories` answers with three
-    `PoseArray`s - the fixed labels, this run's values, and the sweep that
-    clears the value column. A service, not an action: it is a couple of
-    milliseconds of geometry with nothing to report and nothing to cancel.
-- **`centring_node_exec`** frames a face before the analysis pass runs. The
-  camera rides on the flange, so this walks the arm until the face sits where
-  it should - a child's face starts low in the frame, and that is what the
-  correction is for. It talks to the `detect_face` service and the driver's
-  motion action, and nothing else.
+### `tvarometr_interfaces`
 
-  A skeleton so far: it comes up, reports whether it can reach both of those,
-  and does nothing else. The loop itself is next, and the tree calls it through
-  a `CentreFace` action that does not exist yet.
+`FaceAttributes` message, `RunInference` action, `DetectFace` and
+`GenerateTrajectories` services.
 
-#### `master_pkg` (reference only)
-The pre-rebuild system: state machine, its own RWS client, path generation and
-the turtlesim preview. Not built into any container - it is kept as the
-reference for reimplementing the orchestrator and no longer runs as part of the
-stack.
+### Robot driver
 
-### Neural network models
-
-Kept in `models/` at the repo root, out of the source tree - they are half a
-gigabyte between them, stored via Git LFS. The inference node takes a
-`models_dir` parameter, `/opt/tvarometr/models` inside the container.
-
-- `yolov8x_person_face.pt` - face detection (YOLOv8)
-- `model_imdb_cross_person_4.22_99.46.pth.tar` - age estimation
-- `affectnet7_model.pth` - emotion classification
-
-### Python libraries
-
-Pinned in `docker/requirements-vision.txt`. A few of those pins are
-load-bearing - the file explains which and why.
+[abb_rws2_ros2_driver](https://github.com/Katzoun/abb_rws2_ros2_driver) lives in
+its own repository and is imported with vcstool. It is a managed node offering
+`robot_robtarget_move` and `robot_jointtarget_move` (actions) and
+`controller_request` (service); its README documents them. This repo only builds
+its production image and runs it.
 
 ## Getting started
 
 ### Requirements
 
-- Ubuntu 22.04 with a native Docker Engine. Not Docker Desktop: it runs
-  containers in a VM and cannot pass the host GPU through on Linux. Check that
-  `docker context ls` shows `default` as active.
-- NVIDIA Container Toolkit and an NVIDIA GPU.
-- Git LFS on the host (`apt install git-lfs`), for the model weights.
-- vcstool on the host (`apt install python3-vcstool`), to fetch the driver.
-- An ABB GoFa with RWS 2.0, to drive a real robot.
-
-ROS2 Humble, Python and every model dependency live in the container, so
-nothing beyond the list above is needed on the host.
+- Ubuntu 22.04 with a native Docker Engine - not Docker Desktop, which cannot
+  pass the GPU through. `docker context ls` should show `default` as active.
+- NVIDIA GPU and NVIDIA Container Toolkit, for the vision container.
+- Git LFS (`apt install git-lfs`) and vcstool (`apt install python3-vcstool`).
+- An ABB GoFa with RWS 2.0, or RobotStudio's virtual controller.
 
 ### First run
+
+On the host:
 
 ```bash
 git clone https://github.com/Katzoun/tvarometr_ws.git
 cd tvarometr_ws
-git lfs install && git lfs pull      # weights; LFS pointers are ~130 bytes
-vcs import src < dependencies.repos        # the ABB driver, from its own repository
-docker compose -f docker-compose.dev.yml up -d --build
+git lfs install && git lfs pull       # weights; without LFS you get 130-byte pointers
+vcs import src < dependencies.repos   # the robot driver and behaviortree_ros2
+echo "CAMERA_DEVICE=/dev/video0" > .env
 ```
 
-The order matters. The orchestrator is C++ and needs the driver's
-`robot_control_msgs` headers to build, so its image resolves that package's
-manifest - `vcs import` has to have run first or the build fails on a missing
-file. `dependencies.repos` pins the repository and branch; the import lands in
-`src/abb_rws2_ros2_driver/` and is git-ignored here, so the driver stays
-versioned in its own repo, not this one. `vcs pull src` updates it later.
+The import has to come before any image build: the orchestrator image resolves
+dependencies from the driver's `robot_control_msgs` manifest. Both imported
+repositories are git-ignored here; `vcs pull src` updates them.
 
-`docker-compose.dev.yml` is the only compose file here. It defines three
-environments over the one source tree:
+`CAMERA_DEVICE` is mapped into the vision container when it is created, so set
+it first. See [Environment](#environment).
 
-| Service | Needs | Owns | Started by |
+### Containers
+
+`docker-compose.dev.yml` defines three services over the one source tree:
+
+| Service | Needs | Builds | Profile |
 | --- | --- | --- | --- |
-| `orchestrator` | CPU only | `tvarometr_orchestrator` | `up -d` |
-| `vision` | NVIDIA GPU | `tvarometr_interfaces`, `tvarometr_inference` | `--profile vision` |
-| `driver` | a robot | nothing - it runs the driver's own image | `--profile robot` |
+| `orchestrator` | CPU only | `tvarometr_orchestrator`, `tvarometr_geometry`, `tvarometr_interfaces` | none |
+| `vision` | NVIDIA GPU | `tvarometr_inference`, `tvarometr_interfaces` | `vision` |
+| `driver` | a robot | the driver's own production image | `robot` |
 
-The orchestrator is the one that runs anywhere, so it comes up by default; the
-other two sit behind profiles and start when you name their profile or the
-service. The first two bind-mount the repo at `/workspace` and then idle - they
-never launch a node by themselves, so you start one from a terminal and stop it
-with Ctrl+C.
+`orchestrator` and `vision` bind-mount the repo at `/workspace` and idle; you
+start nodes from a terminal. `driver` starts the driver by itself.
 
-#### The robot driver
-
-The driver is a separate project:
-[abb_rws2_ros2_driver](https://github.com/Katzoun/abb_rws2_ros2_driver). It is
-not developed here - the `driver` service builds its production image with the
-driver's own Dockerfile and runs it, so this repo never describes the driver's
-dependencies. To work on the driver itself, open its repository, which carries
-its own dev container.
-
-```bash
-docker compose -f docker-compose.dev.yml --profile robot up -d
-```
-
-Set the robot's address and credentials as the driver's README describes before
-the first run. Its own `docker-compose.prod.yml` declares the same image and
-container name, so run the driver from one place or the other, not both.
+**From the host, always name the service.** A plain `up -d --build` also rebuilds
+and recreates the orchestrator, which kills a VS Code window attached to it.
 
 ### VS Code
 
-Open the repo on the host, run **Dev Containers: Reopen in Container** and pick
-**orchestrator** or **vision**. That service starts, its packages build
-automatically, and every terminal in the window runs inside the container. To
-work on both at once, open the repo in a second window and pick the other one;
-closing a window leaves the containers running. See the
-[VS Code multi-container workflow](https://code.visualstudio.com/remote/advancedcontainers/connect-multiple-containers).
+Open the repo, run **Dev Containers: Reopen in Container** and pick
+**orchestrator** or **vision**. Only that service starts, its packages build on
+create, and the window's terminals run inside it. For both, open a second window
+and pick the other one. Closing a window leaves its container running.
 
-If the container already exists from the host - `up -d --build` in *First run*
-above starts one - remove it first: `docker compose -f docker-compose.dev.yml
-rm -sf orchestrator` (or `vision`). VS Code reuses an existing container as-is
-rather than recreating it, and only its own container adds the volume the VS
-Code Server install unpacks into; reusing one that lacks it fails with a
-confusing `rmdir: Directory not empty` deep in the "Starting Dev Container"
-log.
-
-There is no dev container for the driver here, on purpose - it has one in its
-own repository.
+VS Code will not attach to a container created from the host with `compose up`
+(it fails with `rmdir: Directory not empty`). Remove that one first with
+`docker compose -f docker-compose.dev.yml rm -sf orchestrator` (or `vision`).
 
 ### Command line
 
 ```bash
-docker compose -f docker-compose.dev.yml exec orchestrator bash   # or: exec vision bash
+docker compose -f docker-compose.dev.yml up -d --build orchestrator
+docker compose -f docker-compose.dev.yml exec orchestrator bash
+colcon build --symlink-install
 ```
 
-Every shell sources ROS through `docker/ros-env.sh`. Build once after the
-container is created:
+For vision, add `--profile vision` and use `vision` as the service name.
 
-```bash
-# in orchestrator
-colcon build --symlink-install --packages-select \
-    robot_control_msgs tvarometr_interfaces tvarometr_orchestrator
-# in vision
-colcon build --symlink-install --packages-select tvarometr_interfaces tvarometr_inference
-
-source /opt/colcon_ws/install/setup.bash
-```
-
-Stop everything from the host:
-
-```bash
-docker compose -f docker-compose.dev.yml --profile vision --profile robot stop
-```
+Every shell sources ROS and the built workspace through `docker/ros-env.sh`; in a
+shell that was open during a build, `source /opt/colcon_ws/install/setup.bash`.
 
 ## Running the system
 
-### Robot driver
+Start the pieces in this order. All containers use the host network and the same
+`ROS_DOMAIN_ID`, so the nodes find each other.
 
-From the driver's own container:
+### 1. Robot driver - host
 
 ```bash
-ros2 launch robot_control robot_control.launch.py
+docker compose -f docker-compose.dev.yml --profile robot up -d --build --no-deps driver
+docker logs -f abb_rws2_ros2_driver
 ```
 
-It is a managed node and comes up `unconfigured`, doing nothing until it is
-driven through the lifecycle from a second terminal:
+The driver comes up `unconfigured`; the tree configures and activates it. Its
+config (`src/abb_rws2_ros2_driver/robot_control/config/robot_control.yaml`) is
+baked into the image, so after editing it run the same command again. The
+driver repo's own `docker-compose.prod.yml` uses the same container name - run
+it from one place only.
+
+RAPID on the controller is maintained by hand, not from this repo.
+
+### 2. Geometry nodes - orchestrator container
 
 ```bash
-ros2 lifecycle set /robot_controller configure
-ros2 lifecycle set /robot_controller activate
+ros2 run tvarometr_geometry trajectory_node_exec
+ros2 run tvarometr_geometry centring_node_exec     # not needed until centring is real
 ```
 
-**The orchestrator does not drive it yet.** Its tree is still a skeleton, so
-goals go by hand for now. The request service and the motion actions are
-documented in the
-[driver's README](https://github.com/Katzoun/abb_rws2_ros2_driver).
-
-### Orchestrator
-
-In an orchestrator terminal:
+### 3. Vision - vision container
 
 ```bash
-ros2 launch tvarometr_orchestrator orchestrator.launch.py
+ros2 launch tvarometr_inference vision.launch.py    # use_camera:=false without a webcam
 ```
 
-The tree runs once and the process exits with it, so this is not something you
-leave running - you start it when there is a face to draw. Point it at another
-tree with `tree_file:=/workspace/path/to.xml`.
-
-### Vision
-
-In a vision terminal:
+Until the tree brings inference up itself, drive it by hand:
 
 ```bash
-ros2 launch tvarometr_inference vision.launch.py device:=cuda:0 use_camera:=false
-```
-
-The node comes up `unconfigured` and holds no weights. Configure loads them,
-which takes a while; activate lets it accept goals:
-
-```bash
-ros2 lifecycle set /inference_node configure
+ros2 lifecycle set /inference_node configure        # loads the weights, takes a while
 ros2 lifecycle set /inference_node activate
+ros2 topic hz /image_raw
+ros2 action send_goal /inference_node/run_inference tvarometr_interfaces/action/RunInference {}
 ```
 
-Then run the models over the newest frame:
+GPU check: `python3 -c 'import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))'`.
+
+### 4. Orchestrator - orchestrator container
 
 ```bash
-ros2 action send_goal /inference_node/run_inference \
-    tvarometr_interfaces/action/RunInference {}
+ros2 run tvarometr_orchestrator orchestrator_node
 ```
 
-To use a webcam, set `CAMERA_DEVICE` in `.env` before creating the container and
-launch with `use_camera:=true`. Models are mounted read-only from `models/`, so
-swapping weights needs only a node restart, not an image rebuild.
-
-Quick GPU check:
-
-```bash
-python3 -c 'import torch; assert torch.cuda.is_available(); print(torch.cuda.get_device_name(0))'
-```
+`ros2 run` and not `ros2 launch`, because launch does not pass the keyboard
+through. Another tree: `--ros-args -p tree_file:=/workspace/path/to.xml`. The
+process runs until Ctrl+C; a failed or aborted run returns to waiting for `S`.
+If the driver cannot be brought up, the process exits.
 
 ## Working on the code
 
-Python edits take effect when you restart the node - `--symlink-install` makes
-the installed package point back at the source. Rebuild only after changing
-message or action definitions, entry points, or installed launch and config
-files. When `tvarometr_interfaces` changes, rebuild every consumer.
+- **Python** - `--symlink-install` points the install at the source, so restart
+  the node. Rebuild after adding entry points, launch or config files.
+- **C++** - rebuild the package after every change.
+- **Tree XML** - installed by symlink, so restart the orchestrator.
+- **Interfaces** - after a change to `tvarometr_interfaces`, rebuild it and every
+  package using it, in both containers.
+- **Images** - after a change to a Dockerfile or requirements file, use **Dev
+  Containers: Rebuild Container**.
 
-Every container uses host networking, shared IPC and the same `ROS_DOMAIN_ID`,
-so nodes in any of them discover each other.
+Colcon writes to `/opt/colcon_ws/{build,install,log}` inside the container, never
+into the repo. `docker/colcon-defaults-*.yaml` sets those paths and which
+packages each container builds, so a bare `colcon build` is enough. Build output
+survives a container restart and is gone after a rebuild.
 
-### Where the files are
-
-Colcon writes outside the bind mount, so build output never lands on the host:
-
-```text
-/workspace/src/          source, shared with the host
-/opt/colcon_ws/build/    inside the container
-/opt/colcon_ws/install/  inside the container
-/opt/colcon_ws/log/      inside the container
-```
-
-The paths come from the container's `docker/colcon-defaults-*.yaml`, which also
-pins which packages it builds - the source tree holds every package, but each
-container only has the dependencies for its own, so a bare `colcon build` there
-builds its own and nothing else. They are not in a volume:
-build output survives stopping and starting a container and is discarded when
-the container is rebuilt, so every rebuild starts from a clean install. Named
-volumes cover only editor extensions and assistant settings, which are
-expensive to reinstall.
-
-### Rebuilding an image
-
-After a change to a requirements file or a Dockerfile, use **Dev Containers:
-Rebuild Container**, or on the host:
-
-```bash
-docker compose -f docker-compose.dev.yml up -d --build
-```
-
-### Which file does what
+Tests: `colcon test --packages-select tvarometr_geometry` (orchestrator) or
+`tvarometr_inference` (vision), then `colcon test-result --verbose`.
 
 | File | Role |
 | --- | --- |
-| `docker/orchestrator.Dockerfile`, `docker/vision.Dockerfile` | Dependencies for each container. No source, models or prebuilt workspace. |
-| `docker-compose.dev.yml` | How the containers run: mounts, GPU, camera, network, profiles. |
-| `.devcontainer/orchestrator/`, `.devcontainer/vision/` | Which service VS Code attaches to, its extensions, and the build on create. |
-| `dependencies.repos` | The driver's repository and branch, for `vcs import`. |
-| `docker/colcon-defaults-*.yaml` | Colcon output paths, and which packages each container builds. |
-| `docker/ros-env.sh` | Sources ROS and the built workspace in every shell. |
-| `docker/entrypoint.sh` | Sources ROS, then runs the container command. |
+| `docker/orchestrator.Dockerfile`, `docker/vision.Dockerfile` | Dependencies only - no source, models or build. |
+| `docker/requirements-*.txt` | Python pins; several are load-bearing and say why. |
+| `docker-compose.dev.yml` | Mounts, GPU, camera, network, profiles. |
+| `.devcontainer/orchestrator/`, `.devcontainer/vision/` | Which service VS Code attaches to, extensions, build on create. |
+| `dependencies.repos` | Driver and behaviortree_ros2, for `vcs import`. |
+| `docker/colcon-defaults-*.yaml` | Colcon paths and packages per container. |
+| `docker/ros-env.sh`, `docker/entrypoint.sh` | Source ROS in every shell and in the container command. |
 
 ## Configuration
 
 ### Robot
 
-Address and credentials belong to the driver and are documented in its
-[README](https://github.com/Katzoun/abb_rws2_ros2_driver). The virtual
-controller usually listens on port 80, the physical one on 443.
+Address and credentials are in the driver's `robot_control.yaml`. The virtual
+controller listens on port 80, the physical one on 443.
+
+### Tree
+
+Values meant to be tuned in the cell sit in `tvarometr.xml`: the photo pose
+(`joints_deg`, degrees), the back-off and approach points (`x,y,z,qx,qy,qz,qw`,
+metres, ROS quaternion order), speeds, and the `tool`/`wobj` names, which must
+exist on the controller. An empty `wobj` means `wobj0`. RAPID shows the
+quaternion as `[qw,qx,qy,qz]`.
+
+### Inference
+
+`tvarometr_inference/config/inference.yaml` - device, weights directory, image
+topic. `config/usb_cam.yaml` - resolution, framerate, video device. Both are read
+at startup; restart the launch after editing.
+
+### Trajectories
+
+`trajectory_node` parameters: letter height and spacing, width of the value
+column, eraser width, pen orientation. Set with `--ros-args -p name:=value`.
 
 ### Environment
 
@@ -377,65 +293,48 @@ Optional `.env` in the repo root, read by Compose:
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `ROS_DOMAIN_ID` | `42` | DDS domain; set the same one for the driver |
+| `ROS_DOMAIN_ID` | `42` | DDS domain for all three containers |
 | `CAMERA_DEVICE` | `/dev/null` | Host webcam passed to vision as `/dev/video0` |
+
+## Roadmap
+
+Next, in order:
+
+1. **Inference on its own** - models on the GPU, a real frame from the webcam,
+   `RunInference` answering by hand in the vision container.
+2. **Inference in the tree** - bring the inference node up next to the driver,
+   check it every run, and replace `MockInference` with `RunInference`.
+3. **Real photo pose** - jog the robot to it and write the joints into the tree.
+4. **Face centring** - a `CentreFace` action served by `centring_node`: detect
+   the face, move the robot a little, wait for a frame taken after it stopped,
+   repeat until the face is centred or time runs out. Still open: how the camera
+   is mounted, and whether to turn the camera or move it.
+
+Known gaps, left for later: an abort while drawing leaves a dirty board; the
+eraser has no tooldata of its own yet; the driver's RWS timeout can be too short
+for `make_robot_ready`.
 
 ## Project structure
 
 ```
 tvarometr_ws/
 ├── src/
-│   ├── tvarometr_inference/       # Camera + the three networks (GPU container)
-│   │   ├── launch/vision.launch.py
-│   │   ├── config/usb_cam.yaml    # resolution, framerate, device path
-│   │   └── tvarometr_inference/
-│   │       ├── inference_node.py
-│   │       └── vendor/            # MiVOLO and ResEmoteNet, vendored as-is
-│   ├── tvarometr_geometry/        # No GPU needed (orchestrator container)
-│   │   └── tvarometr_geometry/
-│   │       ├── trajectory_node.py # face analysis -> the paths to draw
-│   │       ├── path_generator.py  # text -> line segments
-│   │       └── centring_node.py   # walks the arm until the face is framed
-│   ├── tvarometr_interfaces/      # msg/srv/action definitions
-│   ├── tvarometr_orchestrator/    # BehaviorTree.CPP orchestrator (C++)
-│   │   ├── include/ and src/      # one BT node per pair, main is separate
-│   │   └── behavior_trees/        # the trees themselves, as XML
-│   ├── abb_rws2_ros2_driver/      # ABB driver, imported by vcstool, git-ignored
-│   └── master_pkg/                # Pre-rebuild system, reference only
-│       ├── launch/control.launch.py
-│       └── master_pkg/
-│           ├── master.py
-│           └── utils/
-│               ├── state_machine.py
-│               ├── rwsprovider.py
-│               ├── rwswrappers.py
-│               └── path_generator_multiline.py
-├── models/                        # Network weights, Git LFS
-├── docker/                        # Dockerfile, pinned requirements, entrypoint
-├── .devcontainer/                 # VS Code configs for orchestrator/ and vision/
-├── dependencies.repos                   # where the ABB driver is imported from
-└── docker-compose.dev.yml         # orchestrator + optional vision and driver
-```
-
-## The pre-rebuild system
-
-`master_pkg` drove the whole pipeline before the rebuild. Its state machine ran
-IDLE → CAPTURE → INFERENCE → TRAJECTORY_GENERATION → ROBOT_EXECUTION → COMPLETE,
-with a multi-line trajectory generator turning face analysis into a drawable
-path. It is reference material for the BehaviorTree orchestrator, not part of
-any container.
-
-Running it needs a host ROS2 install, including `ros-humble-usb-cam`:
-
-```bash
-git lfs install && git lfs pull
-colcon build
-source install/setup.bash
-
-ros2 launch tvarometr_inference vision.launch.py \
-    device:=cuda:0 models_dir:=$PWD/models     # terminal 1
-ros2 launch master_pkg control.launch.py       # terminal 2
-ros2 run master_pkg keyboard_publisher_exec    # terminal 3
+│   ├── tvarometr_orchestrator/     # behaviour tree (C++)
+│   │   ├── behavior_trees/tvarometr.xml
+│   │   └── include/, src/          # one BT node per pair; orchestrator_node.cpp is main
+│   ├── tvarometr_geometry/         # trajectory and centring nodes (Python)
+│   ├── tvarometr_inference/        # camera and the networks (Python, GPU)
+│   │   ├── config/                 # inference.yaml, usb_cam.yaml
+│   │   └── tvarometr_inference/vendor/   # MiVOLO and ResEmoteNet, as-is
+│   ├── tvarometr_interfaces/       # msg, srv, action
+│   ├── master_pkg/                 # the old state-machine system, not built
+│   ├── abb_rws2_ros2_driver/       # imported by vcstool, git-ignored
+│   └── behaviortree_ros2/          # imported by vcstool, git-ignored
+├── models/                         # network weights, Git LFS
+├── docker/
+├── .devcontainer/
+├── dependencies.repos
+└── docker-compose.dev.yml
 ```
 
 ## Institution

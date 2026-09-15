@@ -31,6 +31,7 @@ add_executable(orchestrator_node
   src/log_message.cpp
   src/mock_action.cpp
   src/mock_inference.cpp
+  src/move_to_joints.cpp
   src/operator_input.cpp
   src/orchestrator_node.cpp
   src/robot_request.cpp

@@ -22,6 +22,7 @@
 #include "tvarometr_orchestrator/log_message.hpp"
 #include "tvarometr_orchestrator/mock_action.hpp"
 #include "tvarometr_orchestrator/mock_inference.hpp"
+#include "tvarometr_orchestrator/move_to_joints.hpp"
 #include "tvarometr_orchestrator/operator_input.hpp"
 #include "tvarometr_orchestrator/robot_request.hpp"
 #include "tvarometr_orchestrator/run_inference.hpp"
@@ -36,7 +37,7 @@ int main(int argc, char ** argv)
     "/behavior_trees/tvarometr.xml";
 
   node->declare_parameter("tree_file", installed_tree);
-  node->declare_parameter("tick_period_s", 0.1);
+  node->declare_parameter("tick_period_s", 0.5);
   node->declare_parameter("groot2_port", 1667);
 
   const auto tree_file = node->get_parameter("tree_file").as_string();
@@ -65,6 +66,11 @@ int main(int argc, char ** argv)
   BT::RosNodeParams motion_params(node, "/robot_controller/robot_robtarget_move");
   motion_params.server_timeout = std::chrono::seconds(3);
   factory.registerNodeType<tvarometr_orchestrator::ExecutePath>("ExecutePath", motion_params);
+
+  // Same driver, same waits, so the same timeout.
+  BT::RosNodeParams joint_params(node, "/robot_controller/robot_jointtarget_move");
+  joint_params.server_timeout = std::chrono::seconds(3);
+  factory.registerNodeType<tvarometr_orchestrator::MoveToJoints>("MoveToJoints", joint_params);
 
   // make_robot_ready is the slow one: when RAPID is not running it turns the
   // motors on, resets the program pointer and starts it, with a second's settle

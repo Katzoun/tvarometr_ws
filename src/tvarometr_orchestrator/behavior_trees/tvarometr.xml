@@ -15,6 +15,11 @@
   <BehaviorTree ID="Tvarometr">
     <Sequence name="orchestrator">
 
+      <!-- Whether the fixed labels are already on the board. The process
+           assumes a clean board when it starts; the first run that gets the
+           labels on sets this, and every run after it draws only the values. -->
+      <Script code="board_written := false"/>
+
       <!-- Once, before anyone can ask for a run. The robot driver is a managed
            node and has to be active or no motion goal is accepted, so it is
            brought up here rather than by hand from a second terminal.
@@ -94,7 +99,11 @@
                      that it is. -->
                 <RobotRequest command="make_robot_ready"/>
 
-                <MockAction name="MoveToPhotoPose" duration_ms="2000"/>
+                <!-- Where the camera photographs from. A placeholder: set it
+                     to a pose jogged to by hand before the first run. Degrees,
+                     axes 1 to 6. The photo itself is still faked below. -->
+                <MoveToJoints name="MoveToPhotoPose" joints_deg="0;0;0;0;0;0"
+                              speed="300"/>
 
                 <!-- One step, because the loop that frames the face belongs in
                      a node of its own: it wants the camera's rate rather than
@@ -117,19 +126,32 @@
                 <MockInference attributes="{attributes}"
                                age="32" gender="male" emotion="happiness"/>
 
-                <!-- Real, and the first step of the cycle that is. All
-                     three paths come back at once and all three land on the
-                     blackboard; which of them the robot actually draws is
-                     decided below, and is still to be written. -->
+                <!-- All three paths come back at once and all three land on
+                     the blackboard; which of them the robot draws is decided
+                     below. -->
                 <GenerateTrajectories attributes="{attributes}"
                                       labels="{labels}"
                                       values="{values}"
                                       erase="{erase}"/>
 
-                <!-- Only the values for now: the labels that go onto a clean
-                     board are still to be decided in the tree. -->
-                <ExecutePath name="DrawValues" path="{values}"
-                             tool="tooltuzka" wobj="wobjtabletop"/>
+                <!-- The labels go on once, onto a clean board. The flag is set
+                     only once they are down, so a run aborted halfway through
+                     them tries them again next time. -->
+                <Precondition if="!board_written" else="SUCCESS">
+                  <Sequence name="write_labels">
+                    <ExecutePath name="DrawLabels" path="{labels}" speed="300"
+                                 tool="tool_draw" wobj="draw_wobj"/>
+                    <Script code="board_written = true"/>
+                  </Sequence>
+                </Precondition>
+
+                <ExecutePath name="DrawValues" path="{values}" speed="300"
+                             tool="tool_draw" wobj="draw_wobj"/>
+
+                <!-- Away from the board before anything else moves: the switch
+                     to the eraser turns the wrist, and it should not do that
+                     with the pen a couple of centimetres off the surface. -->
+                <SubTree ID="BackOff"/>
 
                 <!-- The values stay on the board for as long as the visitor
                      wants to read them, and the operator says when that is.
@@ -137,13 +159,20 @@
                 <LogMessage message="Drawn. C erases the board, E aborts."/>
                 <WaitForContinue/>
 
+               <ExecutePath name="ChangeAndApproach" path="0.4,0.1,0.3,1,0,0,0" speed="300"
+                 tool="tool_erase" wobj="draw_wobj"/>
+
                 <!-- The eraser sits on the same flange as the pen, so erasing
                      is only another tool name, with no tool change and
                      nothing to wait for in between. For now both use the
                      pen's tooldata until the eraser has one of its own - with
                      a real pen fitted, this sweep draws over the values. -->
-                <ExecutePath name="EraseValues" path="{erase}"
-                             tool="tooltuzka" wobj="wobjtabletop"/>
+                <ExecutePath name="EraseValues" path="{erase}" speed="300"
+                             tool="tool_erase" wobj="draw_wobj"/>
+
+                <!-- And away again, so the next run's move to the photo pose
+                     starts clear of the board. -->
+                <SubTree ID="BackOff"/>
               </Sequence>
 
             </ReactiveSequence>
@@ -154,5 +183,18 @@
       </KeepRunningUntilFailure>
 
     </Sequence>
+  </BehaviorTree>
+
+  <!-- The point the arm backs off to, closer to its base than the board is.
+       Its own tree only so that the point is written down once and used from
+       two places.
+
+       A placeholder in wobj0, the robot base, metres: x,y,z then the ROS
+       quaternion qx,qy,qz,qw - here the pen pointing straight down, as it draws.
+       Empty wobj is wobj0. Set the point for the real cell before the first
+       run. -->
+  <BehaviorTree ID="BackOff">
+    <ExecutePath name="BackOff" path="0.7,0.3,0.8,-0.701589459,0.659479492,-0.192839851,0.188869854" speed="300"
+                 tool="tool_draw" wobj=""/>
   </BehaviorTree>
 </root>

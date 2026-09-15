@@ -1,0 +1,24 @@
+# Parameters for the inference node.
+#
+# Read once, when the node starts: edit the value, then restart the launch.
+# Change the key below if you rename the node.
+
+inference_node:
+  ros__parameters:
+
+    # cuda:0 on the machines we run on. Asking for CUDA where there is none is
+    # not fatal - the node warns and falls back to the CPU, which is slow.
+    device: cuda:0
+
+    # Where the weights live. The vision container mounts the repo's models/
+    # here; outside the container, point it at that directory instead.
+    models_dir: /opt/tvarometr/models
+
+    # Each model can also be taken from somewhere else on its own, which is
+    # handy for trying a single new checkpoint. Unset, they come from models_dir.
+    # detector_path: /opt/tvarometr/models/yolov8x_person_face.pt
+    # mivolo_path: /opt/tvarometr/models/model_imdb_cross_person_4.22_99.46.pth.tar
+    # resemotenet_path: /opt/tvarometr/models/affectnet7_model.pth
+
+    # Where usb_cam publishes. The node keeps only the newest frame.
+    image_topic: /image_raw

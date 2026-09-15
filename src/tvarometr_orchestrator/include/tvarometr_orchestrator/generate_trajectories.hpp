@@ -6,6 +6,7 @@
 #include "behaviortree_ros2/bt_service_node.hpp"
 #include "geometry_msgs/msg/pose_array.hpp"
 #include "tvarometr_interfaces/srv/generate_trajectories.hpp"
+#include "tvarometr_orchestrator/pose_array_from_string.hpp"
 
 namespace tvarometr_orchestrator
 {

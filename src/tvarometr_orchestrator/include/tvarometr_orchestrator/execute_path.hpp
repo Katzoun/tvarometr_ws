@@ -7,6 +7,7 @@
 #include "behaviortree_ros2/bt_action_node.hpp"
 #include "rclcpp/time.hpp"
 #include "robot_control_msgs/action/execute_pose_array.hpp"
+#include "tvarometr_orchestrator/pose_array_from_string.hpp"
 
 namespace tvarometr_orchestrator
 {

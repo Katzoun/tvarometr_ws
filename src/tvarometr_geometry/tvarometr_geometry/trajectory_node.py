@@ -53,7 +53,7 @@ class TrajectoryNode(Node):
         # covers in one pass. Both decide where the sweep runs, so a value that
         # is wrong here is a value the robot wipes text over.
         self.declare_parameter('values_width', 600.0)
-        self.declare_parameter('eraser_width', 20.0)
+        self.declare_parameter('eraser_width', 120.0)
         self.declare_parameter('label_gap', 10.0)
 
         # The pen orientation every point is written with. Default is the

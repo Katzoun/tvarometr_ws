@@ -1,149 +1,85 @@
 # Rychlý start pro vývoj
 
-Úplný popis je v [README](README.md#getting-started), tohle je zkrácená verze.
+Zkrácená česká verze. Všechno podrobně, včetně vysvětlení, je v [README](README.md).
 
-Máš dvě prostředí: **orchestrator** pro chování systému a **vision** pro kameru
-a neuronové sítě. Obě vidí stejný repozitář, ale každé má vlastní knihovny
-i výsledky sestavení. Vision potřebuje NVIDIA GPU a NVIDIA Container Toolkit,
-orchestrátor běží kdekoli.
+## Co systém dělá a kde je vývoj
 
-Ovladač robota se tu nevyvíjí — má vlastní repozitář
-[abb_rws2_ros2_driver](https://github.com/Katzoun/abb_rws2_ros2_driver)
-i vlastní devcontainer. Tenhle stack ho umí jen spustit, za profilem `robot`.
+Robot najede do fotopozice, vycentruje obličej, sítě odhadnou věk, pohlaví
+a náladu, robot to napíše na tabuli a po klávese **C** hodnoty smaže. Popisky
+(Věk, Pohlaví, Nálada) píše jen v prvním běhu.
 
-## 1. Připrav si repozitář
+Vyvíjí se od konce. Reálně s robotem už jede fotopozice, generování trajektorií,
+psaní, odjetí od tabule a mazání. Centrování a inference jsou ve stromu zatím
+falešné. Co přijde dál, je v [Roadmap](README.md#roadmap).
 
-Na hostiteli, ještě před otevřením kontejneru:
+## Prostředí
 
-```bash
-git lfs install && git lfs pull      # váhy modelů; bez LFS dostaneš jen ukazatele
-vcs import src < dependencies.repos        # ovladač robota z jeho repozitáře
-```
-
-Import musí proběhnout **před** stavbou obrazů. Orchestrátor je v C++ a potřebuje
-hlavičky z `robot_control_msgs`, takže jeho image sahá na manifest ovladače —
-bez importu build spadne na chybějícím souboru.
-
-Pak otevři repozitář ve VS Code, přes `F1` spusť **Dev Containers: Reopen in
-Container** a vyber jedno z prostředí.
-
-VS Code kontejner připraví a sestaví jeho ROS balíčky. Terminály v tom okně pak
-běží uvnitř kontejneru. Sám o sobě kontejner nespustí nic.
-
-Pro souběžnou práci otevři repozitář ve druhém okně a vyber druhé prostředí.
-Zavření okna kontejnery nevypíná; zastavíš je z terminálu hostitele:
-
-```bash
-docker compose -f docker-compose.dev.yml --profile vision --profile robot stop
-```
-
-## 2. Spusť uzel
-
-V prostředí **orchestrator**:
-
-```bash
-ros2 run tvarometr_orchestrator orchestrator_node
-```
-
-Nejdřív strom nakonfiguruje a aktivuje ovladač robota. Když už aktivní je,
-nechá ho být, takže restart orchestrátoru nerozbije jeho spojení s robotem.
-Když ovladač neběží, bring-up selže a proces skončí; to je záměr, bez něj není
-co spouštět. Inference se zatím nezapíná — vision teď v běhu není a místo ní
-strom dosadí falešné atributy.
-
-Generování trajektorií a centrování managed nejsou — nedrží žádný zdroj, takže stačí, aby
-běžely. V prostředí **orchestrator** je pustíš vedle stromu:
-
-```bash
-ros2 run tvarometr_geometry trajectory_node_exec
-ros2 run tvarometr_geometry centring_node_exec
-```
-
-Pak strom čeká na operátora: **S** spustí běh, **E** ho přeruší a vrátí strom
-zpátky k čekání. Po napsání hodnot běh počká a **C** ho pustí dál ke smazání.
-Přerušení se zapamatuje — **S** i **C** jsou odmítnuté, dokud ho nekvituješ
-klávesou **Q**. Na začátku každého cyklu se ještě ověří, že jsou
-uzly pořád aktivní.
-
-Reálné jsou zatím generování trajektorií, příprava robota, kreslení hodnot na
-tabuli a jejich mazání, ostatní kroky jsou mockované. Běh tedy potřebuje
-`trajectory_node` a ovladač robota, kameru ani GPU ne.
-
-Proto `ros2 run` a ne `ros2 launch`: launch nepouští terminál dovnitř, takže by
-se klávesy k uzlu nedostaly.
-
-Na hostiteli si můžeš pustit **Groot2** a přes *Monitor* se připojit na
-`localhost:1667` — uvidíš strom tikat živě. Kontejner je na hostitelské síti,
-takže se nic nemapuje.
-
-V prostředí **vision**:
-
-```bash
-ros2 launch tvarometr_inference vision.launch.py device:=cuda:0 use_camera:=false
-```
-
-Uzel naběhne ve stavu `unconfigured` a nemá načtené váhy. Do aktivního stavu
-ho obvykle vezme orchestrátor sám, ale ručně to jde taky — hodí se, když
-chceš sítě zkoušet bez stromu:
-
-```bash
-ros2 lifecycle set /inference_node configure
-ros2 lifecycle set /inference_node activate
-```
-
-Sítě pustíš na poslední snímek přes action:
-
-```bash
-ros2 action send_goal /inference_node/run_inference \
-    tvarometr_interfaces/action/RunInference {}
-```
-
-Vision kontejner už kreslení neobsahuje — je to čistá geometrie bez GPU, takže
-se přestěhovalo do `tvarometr_geometry` vedle orchestrátoru.
-
-Ovladač robota spustíš z jeho vlastního kontejneru, postup je v jeho README.
-Oba kontejnery běží na síti hostitele se stejným `ROS_DOMAIN_ID`, takže se
-jejich uzly navzájem vidí.
-
-## 3. Upravuj kód
-
-Uprav Python soubor, zastav uzel přes `Ctrl+C` a spusť `ros2 launch` znovu.
-Zdrojáky se ukládají přímo do repozitáře na hostiteli.
-
-Po změně ROS zpráv, akcí, entry pointů nebo launch/config souborů sestav
-balíčky znovu a načti výsledek:
-
-```bash
-# v orchestrator
-colcon build --symlink-install --packages-select \
-    robot_control_msgs tvarometr_interfaces tvarometr_orchestrator
-# ve vision
-colcon build --symlink-install --packages-select tvarometr_interfaces tvarometr_inference
-
-source /opt/colcon_ws/install/setup.bash
-```
-
-V C++ se navíc musí přestavět po každé změně zdrojáku, `--symlink-install` tam
-narozdíl od Pythonu nic neušetří.
-
-Po změně knihoven nebo Dockerfile použij **Dev Containers: Rebuild Container**.
-
-## Dva různé buildy
-
-| Operace | Co připravuje | Kdy ji potřebuješ |
+| Kontejner | Na co | Jak ho spustit |
 | --- | --- | --- |
-| Docker build | Image se systémem, ROS a knihovnami. | Poprvé a po změně závislostí nebo Dockerfile. |
-| Colcon build | Tvoje ROS balíčky: rozhraní, spustitelné příkazy, instalaci. | Automaticky při vytvoření kontejneru, pak ručně po změně rozhraní. |
+| **orchestrator** | strom, generování trajektorií, centrování | VS Code → *Reopen in Container* |
+| **vision** | kamera a sítě, potřebuje NVIDIA GPU | VS Code → *Reopen in Container* |
+| **driver** | ovladač robota, hotový image | z hostitele, viz níže |
 
-## Kde jsou soubory
+Před prvním otevřením na hostiteli:
 
-```text
-/workspace/              repozitář sdílený s hostitelem
-/opt/colcon_ws/build/    pracovní soubory Colconu v kontejneru
-/opt/colcon_ws/install/  sestavené ROS balíčky v kontejneru
-/opt/colcon_ws/log/      záznamy sestavení v kontejneru
+```bash
+git lfs install && git lfs pull
+vcs import src < dependencies.repos
+echo "CAMERA_DEVICE=/dev/video0" > .env    # kamera se mapuje jen při vytvoření kontejneru
 ```
 
-Cesta `/opt/colcon_ws` se na hostitele nemountuje, takže build ani install se
-ti do repozitáře nikdy nepropíšou. Přežijí zastavení a spuštění kontejneru, ale
-při **Rebuild Container** zmizí — každý rebuild tak začíná načisto.
+**Z hostitele vždycky piš název služby.** `docker compose ... up -d --build`
+bez něj přestaví i orchestrátor a shodí ti otevřený devcontainer.
+
+## Spuštění běhu
+
+1. **Driver** (hostitel). Naběhne `unconfigured`, zapne ho až strom.
+
+   ```bash
+   docker compose -f docker-compose.dev.yml --profile robot up -d --build --no-deps driver
+   ```
+
+   Konfigurace driveru je zapečená v image, takže po úpravě `robot_control.yaml`
+   stejný příkaz zopakuj.
+
+2. **Trajektorie** (orchestrator):
+
+   ```bash
+   ros2 run tvarometr_geometry trajectory_node_exec
+   ```
+
+3. **Strom** (orchestrator, druhý terminál):
+
+   ```bash
+   ros2 run tvarometr_orchestrator orchestrator_node
+   ```
+
+   **S** spustí běh, **C** po napsání pustí mazání, **E** přeruší a **Q**
+   přerušení kvituje. Dokud ho nekvituješ, S i C jsou odmítnuté. `ros2 run`,
+   ne `ros2 launch`, jinak se klávesy k uzlu nedostanou. Groot2 na hostiteli se
+   připojí na `localhost:1667`.
+
+## Inference (vision)
+
+```bash
+ros2 launch tvarometr_inference vision.launch.py
+ros2 lifecycle set /inference_node configure   # načte váhy
+ros2 lifecycle set /inference_node activate
+ros2 action send_goal /inference_node/run_inference tvarometr_interfaces/action/RunInference {}
+```
+
+Zařízení, složka s vahami a topic kamery jsou v
+`src/tvarometr_inference/config/inference.yaml`, kamera v `usb_cam.yaml`.
+Po úpravě restartuj launch.
+
+## Kdy co přestavět
+
+| Změna | Co udělat |
+| --- | --- |
+| Python, XML stromu | restartovat uzel |
+| C++ | `colcon build` a restart |
+| rozhraní, entry pointy, nové launch/config soubory | `colcon build` v obou kontejnerech, `source /opt/colcon_ws/install/setup.bash` |
+| Dockerfile, requirements | *Dev Containers: Rebuild Container* |
+
+Build a install jsou v `/opt/colcon_ws` uvnitř kontejneru, do repa se nepropíšou
+a rebuild kontejneru je smaže.
