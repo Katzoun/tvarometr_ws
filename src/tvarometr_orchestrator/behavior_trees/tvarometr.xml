@@ -1,15 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  The whole run. The steps of the cycle are still stand-ins: MockAction reports
-  RUNNING for duration_ms and then whatever `succeed` says, and MockInference
-  writes made-up attributes. What is being designed here is the shape - when a
-  cycle starts, what guards it, where it loops - not yet what any step does.
-
-  A step becomes real by renaming it. <MockAction name="RunInference"/> turns
-  into <RunInference attributes="{attributes}"/>; the orchestrator already
-  registers that node, so nothing is rebuilt.
-
-  Set succeed="false" on a step to watch the branch that handles its failure.
+  The whole run: driver bring-up once, then one cycle per visitor.
+  CentreFace and MockInference are still stand-ins; set succeed="false" on a
+  MockAction to watch the branch that handles its failure.
 -->
 <root BTCPP_format="4" main_tree_to_execute="Tvarometr">
   <BehaviorTree ID="Tvarometr">

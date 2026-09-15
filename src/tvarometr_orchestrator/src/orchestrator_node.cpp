@@ -1,9 +1,5 @@
-// Loads the behaviour tree and ticks it until it stops.
-//
-// The tree waits for the operator, runs a cycle and comes back to waiting, so
-// this process is the whole run. Most steps are still MockAction while the
-// shape of the tree is what is being designed; a step becomes real by renaming
-// it in the tree file, not by changing anything here.
+// Loads the behaviour tree and ticks it until Ctrl+C.
+// The tree waits for the operator, runs a cycle and comes back to waiting.
 
 #include <chrono>
 #include <memory>
@@ -94,9 +90,7 @@ int main(int argc, char ** argv)
   state_params.server_timeout = std::chrono::seconds(2);
   factory.registerNodeType<tvarometr_orchestrator::IsNodeActive>("IsNodeActive", state_params);
 
-  // Registered but unused until the tree file asks for them. The two above are
-  // in the same position, which is the point of a skeleton: a step becomes real
-  // by renaming it in the XML.
+  // Operator keys, and the stand-ins for steps that are not real yet.
   tvarometr_orchestrator::OperatorInput operator_input;
   factory.registerNodeType<tvarometr_orchestrator::IsAbortClear>("IsAbortClear", &operator_input);
   factory.registerNodeType<tvarometr_orchestrator::WaitForKey>(

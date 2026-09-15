@@ -13,12 +13,9 @@ line-length = 88
 # suggest syntax the container cannot run.
 target-version = "py310"
 
-# Both are tracked but not ours to lint: master_pkg is the pre-rebuild
-# orchestrator kept for reference, and vendor holds MiVOLO and ResEmoteNet as
-# they came. colcon's output trees and the imported repositories need no entry
-# here - ruff already skips whatever git ignores.
+# MiVOLO and ResEmoteNet, vendored as they came. Imported repositories need no
+# entry - ruff already skips whatever git ignores.
 extend-exclude = [
-    "src/master_pkg",
     "src/tvarometr_inference/tvarometr_inference/vendor",
 ]
 

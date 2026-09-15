@@ -54,7 +54,7 @@ install(TARGETS orchestrator_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
-install(DIRECTORY behavior_trees launch
+install(DIRECTORY behavior_trees
   DESTINATION share/${PROJECT_NAME}
 )
 
@@ -66,9 +66,7 @@ if(BUILD_TESTING)
   # it catches still runs.
   set(ament_cmake_copyright_FOUND TRUE)
 
-  # Python here is linted by ruff, which does not turn pydocstyle on. Letting
-  # pep257 loose on the launch file would demand a docstring style that no
-  # other Python file in the repository follows.
+  # Python in this repository is linted by ruff, with its own docstring rules.
   set(ament_cmake_pep257_FOUND TRUE)
 
   ament_lint_auto_find_test_dependencies()

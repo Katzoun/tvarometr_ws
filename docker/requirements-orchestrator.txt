@@ -1,9 +1,4 @@
 # Pip packages for the orchestrator container.
-#
-# Python dependencies for the text trajectory generators alongside ROS and C++.
 
-# Retained for the legacy master_pkg generators.
-Hershey-Fonts
-
-# The geometry text generator reads the bundled single-line SVG font.
+# The trajectory node reads the bundled single-line SVG font with it.
 svg.path==7.0

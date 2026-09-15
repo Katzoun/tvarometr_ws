@@ -327,7 +327,6 @@ tvarometr_ws/
 │   │   ├── config/                 # inference.yaml, usb_cam.yaml
 │   │   └── tvarometr_inference/vendor/   # MiVOLO and ResEmoteNet, as-is
 │   ├── tvarometr_interfaces/       # msg, srv, action
-│   ├── master_pkg/                 # the old state-machine system, not built
 │   ├── abb_rws2_ros2_driver/       # imported by vcstool, git-ignored
 │   └── behaviortree_ros2/          # imported by vcstool, git-ignored
 ├── models/                         # network weights, Git LFS

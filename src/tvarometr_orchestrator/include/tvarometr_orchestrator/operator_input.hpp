@@ -1,7 +1,4 @@
 // The operator's keys, and the tree nodes that read them.
-//
-// Scaffolding: a terminal is the fastest way to drive a skeleton, but the real
-// system gets a trigger that does not need somebody at a keyboard.
 
 #ifndef TVAROMETR_ORCHESTRATOR__OPERATOR_INPUT_HPP_
 #define TVAROMETR_ORCHESTRATOR__OPERATOR_INPUT_HPP_

@@ -33,9 +33,7 @@ BT::NodeStatus MockInference::tick()
   attributes.gender = gender.value();
   attributes.emotion = emotion.value();
   attributes.emotion_confidence = 1.0F;
-  // The bounding box and the image size stay zero. What reads them is the
-  // approach move, and that is still a MockAction - inventing a plausible box
-  // here would only be a number waiting to be believed.
+  // Bounding box and image size stay zero; nothing downstream reads them yet.
 
   setOutput("attributes", attributes);
   RCLCPP_INFO(

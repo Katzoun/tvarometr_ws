@@ -48,7 +48,7 @@ RUN set -eux; \
     lib="$(find /opt/ros/${ROS_DISTRO}/lib -mindepth 2 -name 'libbehaviortree_cpp.so' -print -quit)"; \
     if [ -n "$lib" ]; then ln -s "$lib" /opt/ros/${ROS_DISTRO}/lib/libbehaviortree_cpp.so; fi
 
-# The drawing node's font, which rosdep has no rule for. pip arrives here
+# The trajectory node's font reader, which rosdep has no rule for. pip arrives here
 # rather than with the tools at the top, so that adding to either list leaves
 # the rosdep layer above cached.
 COPY docker/requirements-orchestrator.txt /tmp/requirements-orchestrator.txt

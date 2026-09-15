@@ -7,7 +7,7 @@ and needs the weights on disk, so it happens on configure rather than at
 startup - an unconfigured node costs nothing.
 
 Labels come out as the models wrote them, in English. The Czech wording the
-robot writes on the board is the drawing node's business.
+robot writes on the board is the trajectory node's business.
 """
 
 import rclpy
@@ -62,18 +62,15 @@ class InferenceNode(LifecycleNode):
         self.declare_parameter('detector_path', str(models_dir / 'yolov8x_person_face.pt'))
         self.declare_parameter('mivolo_path', str(models_dir / 'model_imdb_cross_person_4.22_99.46.pth.tar'))
         self.declare_parameter('resemotenet_path', str(models_dir / 'affectnet7_model.pth'))
-        self.declare_parameter('device', 'cpu')  # Bezpečnější výchozí hodnota
+        self.declare_parameter('device', 'cpu')
         self.declare_parameter('image_topic', '/image_raw')
 
-        # Získání a validace device parametru
         requested_device = self.get_parameter('device').get_parameter_value().string_value
 
-        # Kontrola dostupnosti CUDA
         if requested_device.startswith('cuda') and not torch.cuda.is_available():
             self.logger.warn(f"CUDA requested ({requested_device}) but not available. Falling back to CPU.")
             self.device = 'cpu'
         elif requested_device.startswith('cuda') and torch.cuda.is_available():
-            # Ověření, že konkrétní CUDA device existuje
             try:
                 device_id = int(requested_device.split(':')[1]) if ':' in requested_device else 0
                 if device_id >= torch.cuda.device_count():
@@ -317,12 +314,8 @@ class InferenceNode(LifecycleNode):
             f'face at ({roi.x_offset}, {roi.y_offset}), {roi.width}x{roi.height}')
         return response
 
-    # Output order of our affectnet7_model.pth checkpoint. Measured, not assumed:
-    # benchmark/ scores this order at 43.6% on a balanced AffectNet val sample and
-    # confirms it is the best fitting permutation, while the order the upstream
-    # ResEmoteNet inference scripts use scores 11.1% - below chance. The
-    # architecture and preprocessing match upstream, but these weights clearly are
-    # not theirs. Re-run benchmark/score.py before touching this.
+    # Class order of our affectnet7_model.pth, measured: 43.6% on balanced AffectNet
+    # val, upstream's order 11.1%. The benchmark is in git history before b4b73bd.
     EMOTIONS = ['neutral', 'happiness', 'sadness', 'surprise', 'fear', 'disgust', 'anger']
 
     def _predict_emotion(self, face_roi):

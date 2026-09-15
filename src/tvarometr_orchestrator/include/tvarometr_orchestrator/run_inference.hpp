@@ -13,7 +13,7 @@ namespace tvarometr_orchestrator
 ///
 /// The action carries no goal fields - the node always works on whatever it
 /// last received - so everything here is about the answer, which lands on the
-/// blackboard for the drawing node to pick up.
+/// blackboard for GenerateTrajectories to pick up.
 class RunInference : public BT::RosActionNode<tvarometr_interfaces::action::RunInference>
 {
 public:

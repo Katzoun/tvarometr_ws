@@ -41,7 +41,7 @@ def build_face_attributes(age, gender, emotion, emotion_confidence, bbox, image_
 
     `bbox` is the detector's (x1, y1, x2, y2) in pixels and `image_size` the
     (width, height) of the frame it was found in. Labels are passed through as
-    the models wrote them - the Czech wording happens in the drawing node.
+    the models wrote them - the Czech wording happens in the trajectory node.
     """
     width, height = (int(v) for v in image_size)
 

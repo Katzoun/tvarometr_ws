@@ -1,2 +1,0 @@
-class RWSException(Exception):
-    pass
