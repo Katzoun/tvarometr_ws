@@ -10,7 +10,12 @@ from tvarometr_inference.attributes import build_face_attributes
 
 def attributes(bbox=(10, 20, 110, 220), image_size=(640, 480), **kwargs):
     """A message with everything but the field under test left at a sane value."""
-    defaults = dict(age=30, gender="male", emotion="neutral", emotion_confidence=0.5)
+    defaults = {
+        "age": 30,
+        "gender": "male",
+        "emotion": "neutral",
+        "emotion_confidence": 0.5,
+    }
     defaults.update(kwargs)
     return build_face_attributes(bbox=bbox, image_size=image_size, **defaults)
 

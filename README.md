@@ -88,6 +88,15 @@ loading, so they only need to be running.
     `FaceAttributes`. Labels are the models' English ones.
   - `inference_node/detect_face` (service) runs the detector alone and returns
     the face bounding box - the cheap call the centring loop repeats.
+  - Both work on the **visitor**: the face with the best height times a weight
+    for how far it is from `axis_x`, the vertical line over the floor mark where
+    visitors stand. A face `axis_falloff` away from the line counts half. Faces
+    shorter than `min_face_height_px` are too far away to count at all, and a
+    runner-up scoring nearly as high is logged as ambiguous.
+  - `/inference_node/debug_image` shows every face boxed and labelled with its
+    height and axis weight, the selected one in green and the ones too far away
+    in red, with the axis in yellow and its half-weight distance dashed. While something
+    subscribes, the node also runs a full pass at `preview_hz` just for this view.
 
 Weights live in `models/` (Git LFS) and are mounted into the inference container at
 `/opt/tvarometr/models`:
@@ -210,7 +219,7 @@ ros2 run tvarometr_geometry centring_node_exec     # not needed until centring i
 ```bash
 ros2 launch tvarometr_inference inference.launch.py   # use_camera:=false without a webcam
 ros2 launch tvarometr_inference camera.launch.py      # or the camera alone, for tuning it
-ros2 run rqt_image_view rqt_image_view /image_raw     # see what the camera sees
+ros2 run rqt_image_view rqt_image_view /inference_node/debug_image   # faces, labels, who is picked
 ```
 
 GUI tools open on the host display. The container reaches the host X server
@@ -290,7 +299,9 @@ quaternion as `[qw,qx,qy,qz]`.
 All in `tvarometr_inference/config/`, read at startup - restart the launch after
 editing:
 
-- `inference.yaml` - device, weights directory, image topic.
+- `inference.yaml` - device, weights directory, image topic, how the nearest face
+  is picked, preview rate. The selection parameters can also be changed live, which is the easy way to
+  line the axis up with the floor mark: `ros2 param set /inference_node axis_x 0.45`.
 - `usb_cam.yaml` - video device, resolution, framerate.
 - `camera_controls.yaml` - exposure, focus, white balance and the rest, under the
   names `v4l2-ctl -d /dev/video0 --list-ctrls-menus` shows. usb_cam 0.8 sets

@@ -34,7 +34,9 @@ class Detector:
         self.detector_names: Dict[int, str] = self.yolo.model.names
 
         # init yolo.predictor
-        self.detector_kwargs = {"conf": conf_thresh, "iou": iou_thresh, "half": self.half, "verbose": verbose}
+        # newer ultralytics replaced half=True with quantize=16 (None means FP32)
+        precision = 16 if self.half else None
+        self.detector_kwargs = {"conf": conf_thresh, "iou": iou_thresh, "quantize": precision, "verbose": verbose}
         # self.yolo.predict(**self.detector_kwargs)
 
     def predict(self, image: Union[np.ndarray, str, "PIL.Image"]) -> PersonAndFaceResult:

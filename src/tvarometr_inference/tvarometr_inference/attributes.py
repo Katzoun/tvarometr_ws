@@ -18,7 +18,7 @@ def build_region_of_interest(bbox, image_size):
     this geometry and nothing else.
     """
     width, height = (int(v) for v in image_size)
-    x1, y1, x2, y2 = (int(round(float(v))) for v in bbox)
+    x1, y1, x2, y2 = (round(float(v)) for v in bbox)
 
     # A detection can hang a corner just outside the frame, and RegionOfInterest
     # counts in unsigned pixels - a negative offset would wrap into millions.
@@ -28,11 +28,7 @@ def build_region_of_interest(bbox, image_size):
     y2 = min(max(y2, y1), height)
 
     return RegionOfInterest(
-        x_offset=x1,
-        y_offset=y1,
-        width=x2 - x1,
-        height=y2 - y1,
-        do_rectify=False,
+        x_offset=x1, y_offset=y1, width=x2 - x1, height=y2 - y1, do_rectify=False
     )
 
 
@@ -46,7 +42,7 @@ def build_face_attributes(age, gender, emotion, emotion_confidence, bbox, image_
     width, height = (int(v) for v in image_size)
 
     attributes = FaceAttributes()
-    attributes.age = int(round(float(age)))
+    attributes.age = round(float(age))
     attributes.gender = gender
     attributes.emotion = emotion
     attributes.emotion_confidence = float(emotion_confidence)

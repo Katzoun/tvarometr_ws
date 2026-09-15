@@ -66,7 +66,7 @@ bez něj přestaví i orchestrátor a shodí ti otevřený devcontainer.
 
 ```bash
 ros2 launch tvarometr_inference inference.launch.py
-ros2 run rqt_image_view rqt_image_view /image_raw   # náhled kamery na monitoru hostitele
+ros2 run rqt_image_view rqt_image_view /inference_node/debug_image   # obličeje, popisky, koho vybral
 ros2 lifecycle set /inference_node configure   # načte váhy
 ros2 lifecycle set /inference_node activate
 ros2 action send_goal /inference_node/run_inference tvarometr_interfaces/action/RunInference {}
@@ -75,7 +75,10 @@ ros2 action send_goal /inference_node/run_inference tvarometr_interfaces/action/
 Kameru samotnou, třeba na ladění, pustíš přes `camera.launch.py`. Nastavení je
 v `src/tvarometr_inference/config/`, po úpravě restartuj launch:
 
-- `inference.yaml`: zařízení, složka s vahami, topic kamery
+- `inference.yaml`: zařízení, složka s vahami, topic kamery a výběr návštěvníka:
+  `min_face_height_px`, svislice nad značkou na zemi `axis_x` a `axis_falloff`.
+  Za běhu je měníš přes `ros2 param set /inference_node axis_x 0.45` (vždy s
+  desetinnou tečkou) a v debug obraze hned vidíš, kde svislice je.
 - `usb_cam.yaml`: rozlišení a fps
 - `camera_controls.yaml`: expozice, ostření, vyvážení bílé (názvy podle
   `v4l2-ctl -d /dev/video0 --list-ctrls-menus`)

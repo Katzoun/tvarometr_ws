@@ -12,8 +12,8 @@ of halfway through a run.
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
-from robot_control_msgs.action import ExecutePoseArray
 
+from robot_control_msgs.action import ExecutePoseArray
 from tvarometr_interfaces.srv import DetectFace
 
 
@@ -21,28 +21,36 @@ class CentringNode(Node):
     """Holds the clients the centring loop will drive."""
 
     def __init__(self):
-        super().__init__('centring_node')
+        super().__init__("centring_node")
 
         # Named rather than hard-coded: the inference node answers in the inference
         # container and the driver in its own, and either can be remapped.
-        self.declare_parameter('detect_service', '/inference_node/detect_face')
-        self.declare_parameter('motion_action', '/robot_controller/robot_robtarget_move')
+        self.declare_parameter("detect_service", "/inference_node/detect_face")
+        self.declare_parameter(
+            "motion_action", "/robot_controller/robot_robtarget_move"
+        )
         # How long to wait on startup before saying a peer is missing. Long
         # enough that the usual start-everything-at-once is not reported as a
         # fault, short enough to still be a startup message.
-        self.declare_parameter('peer_timeout_s', 5.0)
+        self.declare_parameter("peer_timeout_s", 5.0)
 
-        self.detect_service = self.get_parameter('detect_service').value
-        self.motion_action = self.get_parameter('motion_action').value
+        self.detect_service = (
+            self.get_parameter("detect_service").get_parameter_value().string_value
+        )
+        self.motion_action = (
+            self.get_parameter("motion_action").get_parameter_value().string_value
+        )
 
         self.detect_client = self.create_client(DetectFace, self.detect_service)
         # Cartesian, because the correction is a shift of the camera and not an
         # angle on any one axis.
         self.motion_client = ActionClient(self, ExecutePoseArray, self.motion_action)
 
-        timeout = self.get_parameter('peer_timeout_s').value
+        timeout = (
+            self.get_parameter("peer_timeout_s").get_parameter_value().double_value
+        )
         self._peer_timer = self.create_timer(timeout, self.report_peers)
-        self.get_logger().info('Up. Checking what it can reach...')
+        self.get_logger().info("Up. Checking what it can reach...")
 
     def report_peers(self):
         """Says once whether both peers are there. Nothing here drives anything."""
@@ -53,9 +61,9 @@ class CentringNode(Node):
             (self.motion_action, self.motion_client.server_is_ready()),
         ):
             if ready:
-                self.get_logger().info(f'Found {name}')
+                self.get_logger().info(f"Found {name}")
             else:
-                self.get_logger().warn(f'Not reachable: {name}')
+                self.get_logger().warn(f"Not reachable: {name}")
 
 
 def main(args=None):
@@ -70,5 +78,5 @@ def main(args=None):
         rclpy.try_shutdown()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -22,3 +22,18 @@ inference_node:
 
     # Where usb_cam publishes. The node keeps only the newest frame.
     image_topic: /image_raw
+
+    # The visitor is the tallest face near the axis. Shorter than this, a face is too
+    # far from the camera to count at all.
+    min_face_height_px: 100
+    # Vertical line over the floor mark, as a fraction of the image width (0.5 = centre).
+    # A face at axis_falloff from it counts half its height; 0.0 ignores the axis.
+    # Keep the decimal point: an integer here stops the node from starting.
+    axis_x: 0.5
+    axis_falloff: 0.25
+    # Warn when the runner-up scores at least this fraction of the winner.
+    ambiguity_ratio: 0.8
+
+    # Full pass onto /inference_node/debug_image at this rate, only while something
+    # subscribes to it. 0 turns it off.
+    preview_hz: 5.0
