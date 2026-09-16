@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
   The whole run: driver bring-up once, then one cycle per visitor.
-  CentreFace and MockInference are still stand-ins; set succeed="false" on a
-  MockAction to watch the branch that handles its failure.
+  MockInference is still a stand-in; set succeed="false" on a MockAction to
+  watch the branch that handles its failure.
 -->
 <root BTCPP_format="4" main_tree_to_execute="Tvarometr">
   <BehaviorTree ID="Tvarometr">
@@ -13,26 +13,25 @@
            labels on sets this, and every run after it draws only the values. -->
       <Script code="board_written := false"/>
 
-      <!-- Once, before anyone can ask for a run. The robot driver is a managed
-           node and has to be active or no motion goal is accepted, so it is
-           brought up here rather than by hand from a second terminal.
+      <!-- Once, before anyone can ask for a run. The robot driver and the
+           inference node are managed nodes: the driver accepts no motion goal
+           and the inference node answers no detection until they are active, so
+           both are brought up here rather than by hand from other terminals.
+           Configuring the inference node loads its weights, which takes a while.
+           The trajectory and centring nodes never belong here: they hold no
+           resource, so they are plain nodes, ready as soon as they are running.
 
-           The inference node is managed too, and belongs here in the same shape
-           - it is left out while the inference stack is not part of the run, and
-           MockInference stands in for it below. The trajectory node never
-           belongs here: it holds no resource, so it is a plain node that is
-           ready as soon as it is running.
-
-           Ask whether the driver is already active, and only if it is not,
+           Ask whether each node is already active, and only if it is not,
            configure and activate it. That makes restarting this process cheap:
-           a driver that is up keeps its robot session.
+           a driver that is up keeps its robot session, and an inference node
+           that is up keeps its weights on the GPU.
 
            ForceSuccess on configure covers the node that is configured but not
            active: configure refuses, and activate is what decides. A genuine
            configure failure is not lost - it surfaces as the activate failing
            right after it, and the node itself logged the reason. -->
       <Sequence name="bring_up">
-        <LogMessage message="Bringing the robot driver up."/>
+        <LogMessage message="Bringing the robot driver and the inference node up."/>
 
         <Fallback name="driver_up">
           <IsNodeActive service_name="/robot_controller/get_state"/>
@@ -42,6 +41,18 @@
                                     transition="configure"/>
             </ForceSuccess>
             <ChangeLifecycleState service_name="/robot_controller/change_state"
+                                  transition="activate"/>
+          </Sequence>
+        </Fallback>
+
+        <Fallback name="inference_up">
+          <IsNodeActive service_name="/inference_node/get_state"/>
+          <Sequence>
+            <ForceSuccess>
+              <ChangeLifecycleState service_name="/inference_node/change_state"
+                                    transition="configure"/>
+            </ForceSuccess>
+            <ChangeLifecycleState service_name="/inference_node/change_state"
                                   transition="activate"/>
           </Sequence>
         </Fallback>
@@ -82,6 +93,7 @@
                      the tree back to waiting - later than this, but
                      harmlessly. -->
                 <IsNodeActive service_name="/robot_controller/get_state"/>
+                <IsNodeActive service_name="/inference_node/get_state"/>
 
                 <!-- Mastership, motors on, RAPID started. Here and not in the
                      bring-up, for two reasons. The motors come on when somebody
@@ -92,20 +104,50 @@
                      that it is. -->
                 <RobotRequest command="make_robot_ready"/>
 
-                <!-- Where the camera photographs from. A placeholder: set it
-                     to a pose jogged to by hand before the first run. Degrees,
-                     axes 1 to 6. The photo itself is still faked below. -->
-                <MoveToJoints name="MoveToPhotoPose" joints_deg="0;0;0;0;0;0"
-                              speed="300"/>
+                <!-- Every run starts from the same pose. After a normal run the
+                     robot is already there and this finishes at once; after an
+                     abort it is the move that brings the robot back. A joint
+                     move from wherever the abort left it - near the board, jog
+                     it clear by hand before pressing S. Written here and at the
+                     end of the run, keep both the same. -->
+                <MoveToJoints name="MoveHome" joints_deg="0;0;0;0;0;0" speed="300"/>
 
-                <!-- One step, because the loop that frames the face belongs in
-                     a node of its own: it wants the camera's rate rather than
-                     the tick rate, and the gains and the convergence test are
-                     control state, not blackboard state. It reports RUNNING
-                     while it closes in, FAILURE when it runs out of time or
-                     finds nobody. Its feedback is what tells an operator how it
-                     is doing. -->
-                <MockAction name="CentreFace" duration_ms="4000"/>
+                <!-- From home over to the camera's pose. MoveJ, because nothing here needs a straight
+                     line and joint moves reach further.
+
+                     The photo pose is a placeholder: cartesian, metres, in
+                     draw_wobj, then the ROS quaternion x,y,z,w. It is written
+                     here, in CentreFace and in BackToPhotoPose below - keep all
+                     three the same. Centring works every move out from the pose
+                     it is given and never reads where the arm really is. -->
+                <ExecutePath name="MoveToPhotoPose" path="-0.12,-0.9,1.2,1,0,0,0"
+                             motion_command="MoveJ" speed="300"
+                             tool="tool0" wobj="wobj0"/>
+
+                <!-- The scan, and what happens when it comes up empty: back to
+                     the photo pose, wherever in Z the scan left the camera, and
+                     wait. C scans again, E gives up on the run - the wait sits
+                     inside the guard above, like everything else here.
+
+                     ForceFailure is what makes C a retry: the recovery branch
+                     ends up failing whatever the operator does, so the Fallback
+                     fails and RetryUntilSuccessful ticks the scan again. -->
+                <RetryUntilSuccessful num_attempts="-1">
+                  <Fallback>
+                    <CentreFace photo_pose="-0.12,-0.9,1.2,1,0,0,0"
+                                tool="tool0" wobj="wobj0"/>
+                    <ForceFailure>
+                      <Sequence name="ask_for_a_retry">
+                        <ExecutePath name="BackToPhotoPose"
+                                     path="-0.12,-0.9,1.2,1,0,0,0"
+                                     motion_command="MoveL" speed="300"
+                                     tool="tool0" wobj="wobj0"/>
+                        <LogMessage message="Nobody framed. C tries again, E aborts."/>
+                        <WaitForContinue/>
+                      </Sequence>
+                    </ForceFailure>
+                  </Fallback>
+                </RetryUntilSuccessful>
 
                 <!-- The full model pass runs once, on a frame that is already
                      framed well - the centring loop reads a cheaper
@@ -163,9 +205,10 @@
                 <ExecutePath name="EraseValues" path="{erase}" speed="300"
                              tool="tool_erase" wobj="draw_wobj"/>
 
-                <!-- And away again, so the next run's move to the photo pose
-                     starts clear of the board. -->
+                <!-- And away again, clear of the board before the joint move
+                     home, which parks the robot where the next run starts. -->
                 <SubTree ID="BackOff"/>
+                <MoveToJoints name="ParkHome" joints_deg="0;0;0;0;0;0" speed="300"/>
               </Sequence>
 
             </ReactiveSequence>

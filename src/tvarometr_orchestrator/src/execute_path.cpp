@@ -1,7 +1,11 @@
 #include "tvarometr_orchestrator/execute_path.hpp"
 
+#include <chrono>
 #include <memory>
+#include <mutex>
 #include <string>
+
+#include "tvarometr_orchestrator/cancel_orphaned_goals.hpp"
 
 namespace tvarometr_orchestrator
 {
@@ -21,6 +25,20 @@ BT::PortsList ExecutePath::providedPorts()
       // ever this tool name.
       BT::InputPort<std::string>("tool", "", "tooldata name, e.g. tooltuzka"),
       BT::InputPort<std::string>("wobj", "", "wobjdata name, e.g. wobjtabletop")});
+}
+
+BT::NodeStatus ExecutePath::tick()
+{
+  // Every ExecutePath shares one client, and the driver's feedback topic carries
+  // every goal on this action - the centring node's moves too. The library reads
+  // only a message or two per tick, so a backlog of those could keep the
+  // driver's answer to a new goal unread past the send timeout, while the robot
+  // was already drawing. Emptying the queue first keeps the answer in reach.
+  if (client_instance_) {
+    std::unique_lock<std::mutex> lock(getMutex());
+    client_instance_->callback_executor.spin_all(std::chrono::milliseconds(20));
+  }
+  return BT::RosActionNode<robot_control_msgs::action::ExecutePoseArray>::tick();
 }
 
 bool ExecutePath::setGoal(Goal & goal)
@@ -74,6 +92,8 @@ BT::NodeStatus ExecutePath::onResultReceived(const WrappedResult & result)
 BT::NodeStatus ExecutePath::onFailure(
   BT::ActionNodeErrorCode error, const std::optional<WrappedResult> & result)
 {
+  cancelOrphanedGoals(error, *client_instance_->action_client, logger());
+
   // A rejected goal has no result; the driver logged its reason on its side -
   // not active, not idle, or already busy with another path.
   if (result && result->result) {

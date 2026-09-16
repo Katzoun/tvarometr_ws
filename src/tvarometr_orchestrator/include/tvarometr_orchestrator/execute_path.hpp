@@ -31,6 +31,8 @@ public:
 
   static BT::PortsList providedPorts();
 
+  BT::NodeStatus tick() override;
+
   bool setGoal(Goal & goal) override;
 
   BT::NodeStatus onResultReceived(const WrappedResult & result) override;

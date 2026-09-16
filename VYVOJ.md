@@ -8,9 +8,10 @@ Robot najede do fotopozice, vycentruje obličej, sítě odhadnou věk, pohlaví
 a náladu, robot to napíše na tabuli a po klávese **C** hodnoty smaže. Popisky
 (Věk, Pohlaví, Nálada) píše jen v prvním běhu.
 
-Vyvíjí se od konce. Reálně s robotem už jede fotopozice, generování trajektorií,
-psaní, odjetí od tabule a mazání. Centrování a inference jsou ve stromu zatím
-falešné. Co přijde dál, je v [Roadmap](README.md#roadmap).
+Vyvíjí se od konce. Reálně s robotem už jede generování trajektorií, psaní,
+odjetí od tabule a mazání. Centrování je ve stromu zapojené, ale fotopozice
+je zatím vymyšlená - je potřeba ji najet a zapsat. Inference je
+ve stromu pořád falešná. Co přijde dál, je v [Roadmap](README.md#roadmap).
 
 ## Prostředí
 
@@ -61,14 +62,17 @@ bez něj přestaví i orchestrátor a shodí ti otevřený devcontainer.
    `src/tvarometr_geometry/config/centring.yaml`. Než to pustíš proti robotu,
    zkus to s `dry_run: true`: uzel projde celou smyčku a vypíše, kam by jel.
 
-4. **Strom** (orchestrator, třetí terminál):
+4. **Strom** (orchestrator, třetí terminál). Předtím musí běžet
+   `inference.launch.py` v inference kontejneru. Driver i inference uzel strom
+   nakonfiguruje a aktivuje sám, první načtení vah chvíli trvá. Když některý
+   z nich nenajde, skončí.
 
    ```bash
    ros2 run tvarometr_orchestrator orchestrator_node
    ```
 
-   **S** spustí běh, **C** po napsání pustí mazání, **E** přeruší a **Q**
-   přerušení kvituje. Dokud ho nekvituješ, S i C jsou odmítnuté. `ros2 run`,
+   **S** spustí běh, **C** zopakuje neúspěšné hledání obličeje a po napsání
+   pustí mazání, **E** přeruší a **Q** přerušení kvituje. Dokud ho nekvituješ, S i C jsou odmítnuté. `ros2 run`,
    ne `ros2 launch`, jinak se klávesy k uzlu nedostanou. Groot2 na hostiteli se
    připojí na `localhost:1667`.
 
@@ -78,7 +82,7 @@ bez něj přestaví i orchestrátor a shodí ti otevřený devcontainer.
 ros2 launch tvarometr_inference inference.launch.py
 ros2 run rqt_image_view rqt_image_view /inference_node/debug_image   # lidé, obličeje, popisky, koho vybral
 ros2 run rqt_image_view rqt_image_view /inference_node/scene_image   # co ukáže televize
-ros2 lifecycle set /inference_node configure   # načte váhy
+ros2 lifecycle set /inference_node configure   # načte váhy; ve stromu to udělá strom sám
 ros2 lifecycle set /inference_node activate
 ros2 action send_goal /inference_node/run_inference tvarometr_interfaces/action/RunInference {}
 ```

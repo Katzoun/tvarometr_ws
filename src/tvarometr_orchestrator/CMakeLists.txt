@@ -25,6 +25,7 @@ find_package(robot_control_msgs REQUIRED)
 find_package(tvarometr_interfaces REQUIRED)
 
 add_executable(orchestrator_node
+  src/centre_face.cpp
   src/execute_path.cpp
   src/generate_trajectories.cpp
   src/lifecycle_nodes.cpp

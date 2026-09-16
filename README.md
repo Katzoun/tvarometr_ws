@@ -46,9 +46,11 @@ The BehaviorTree.CPP 4 tree in `behavior_trees/tvarometr.xml` drives everything
 else. C++, one BT node per header/source pair.
 
 - **Bring-up.** Before the first run the tree configures and activates the robot
-  driver, unless it is active already - so restarting the orchestrator keeps the
-  driver's robot session.
-- **Each run** checks the driver is still active, asks it to make the robot
+  driver and the inference node, each unless it is active already - so
+  restarting the orchestrator keeps the driver's robot session and the weights
+  on the GPU. The first configure of the inference node loads the weights and
+  takes a while.
+- **Each run** checks both are still active, asks it to make the robot
   ready (mastership, motors on, RAPID started), and then goes through the steps
   above. `board_written` on the blackboard remembers whether the labels are
   already up; it resets when the process restarts.
@@ -60,9 +62,13 @@ else. C++, one BT node per header/source pair.
 - **Groot2** can attach to the running tree on port 1667 (`groot2_port`). The
   containers are on the host network, so there is nothing to map.
 
-Stand-ins still in the tree: `MockAction name="CentreFace"` and `MockInference`,
-which writes made-up attributes to the same port `RunInference` would. The real
-`RunInference` node is already registered, so swapping it in is an XML edit.
+- **The scan and its retry.** A run drives to the photo pose and hands that pose
+  to `CentreFace`. A scan that finds nobody puts the robot
+  back on the photo pose and waits: `C` scans again, `E` gives up on the run.
+
+Stand-in still in the tree: `MockInference`, which writes made-up attributes to
+the same port `RunInference` would. The real `RunInference` node is already
+registered, so swapping it in is an XML edit.
 
 ### `tvarometr_geometry`
 
@@ -263,7 +269,7 @@ through host networking, but the host has to let root in:
 before it starts; after a new login, or for a container started from the command
 line, run it yourself.
 
-Until the tree brings inference up itself, drive it by hand:
+The tree configures and activates the node itself. To try it without the tree:
 
 ```bash
 ros2 lifecycle set /inference_node configure        # loads the weights, takes a while
@@ -283,7 +289,8 @@ ros2 run tvarometr_orchestrator orchestrator_node
 `ros2 run` and not `ros2 launch`, because launch does not pass the keyboard
 through. Another tree: `--ros-args -p tree_file:=/workspace/path/to.xml`. The
 process runs until Ctrl+C; a failed or aborted run returns to waiting for `S`.
-If the driver cannot be brought up, the process exits.
+If the driver or the inference node cannot be brought up, the process exits -
+so start the inference launch before the orchestrator.
 
 ## Working on the code
 
@@ -334,8 +341,8 @@ quaternion as `[qw,qx,qy,qz]`.
 All in `tvarometr_inference/config/`, read at startup - restart the launch after
 editing:
 
-- `inference.yaml` - device, weights directory, image topic, how the nearest face
-  is picked, preview rate. The selection parameters can also be changed live, which is the easy way to
+- `inference.yaml` - device, weights directory, image topic, how the visitor is
+  picked, preview rate. The selection parameters can also be changed live, which is the easy way to
   line the axis up with the floor mark: `ros2 param set /inference_node axis_x 0.45`.
 - `usb_cam.yaml` - video device, resolution, framerate.
 - `camera_controls.yaml` - exposure, focus, white balance and the rest, under the
@@ -363,14 +370,9 @@ container after changing it.
 
 Next, in order:
 
-1. **Inference on its own** - models on the GPU, a real frame from the webcam,
-   `RunInference` answering by hand in the inference container.
-2. **Inference in the tree** - bring the inference node up next to the driver,
-   check it every run, and replace `MockInference` with `RunInference`.
-3. **Real photo pose** - jog the robot to it and write the joints into the tree.
-4. **Face centring in the tree** - a C++ `CentreFace` node that sends the photo
-   pose the robot has just driven to, then a run against the robot with
-   `dry_run` first and a small `gain` after that. The loop itself is written.
+1. **The scan against the robot** - `dry_run` first, then a small `gain`, and
+   Z limits measured from the real photo pose.
+2. **Real inference in the tree** - replace `MockInference` with `RunInference`.
 
 Known gaps, left for later: an abort while drawing leaves a dirty board; the
 eraser has no tooldata of its own yet; the driver's RWS timeout can be too short

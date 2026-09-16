@@ -1,17 +1,20 @@
 // Loads the behaviour tree and ticks it until Ctrl+C.
 // The tree waits for the operator, runs a cycle and comes back to waiting.
 
+#include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <memory>
 #include <string>
 #include <thread>
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
 #include "behaviortree_cpp/bt_factory.h"
-#include "behaviortree_cpp/loggers/bt_cout_logger.h"
+#include "behaviortree_cpp/loggers/abstract_logger.h"
 #include "behaviortree_cpp/loggers/groot2_publisher.h"
 #include "behaviortree_ros2/ros_node_params.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "tvarometr_orchestrator/centre_face.hpp"
 #include "tvarometr_orchestrator/execute_path.hpp"
 #include "tvarometr_orchestrator/generate_trajectories.hpp"
 #include "tvarometr_orchestrator/lifecycle_nodes.hpp"
@@ -23,6 +26,41 @@
 #include "tvarometr_orchestrator/robot_request.hpp"
 #include "tvarometr_orchestrator/run_inference.hpp"
 
+namespace
+{
+
+/// BT.CPP's StdCoutLogger, minus IsAbortClear. The guard re-checks it on every
+/// tick, so at the tick rate below it would bury every other line twenty times
+/// a second.
+class QuietCoutLogger : public BT::StatusChangeLogger
+{
+public:
+  explicit QuietCoutLogger(const BT::Tree & tree)
+  : BT::StatusChangeLogger(tree.rootNode())
+  {
+  }
+
+  void flush() override {std::fflush(stdout);}
+
+private:
+  void callback(
+    BT::Duration timestamp, const BT::TreeNode & node, BT::NodeStatus prev_status,
+    BT::NodeStatus status) override
+  {
+    if (node.registrationName() == "IsAbortClear") {
+      return;
+    }
+    const std::string padding(25 - std::min<std::size_t>(24, node.name().size()), ' ');
+    std::printf(
+      "[%.3f]: %s%s%s -> %s\n", std::chrono::duration<double>(timestamp).count(),
+      node.name().c_str(), padding.c_str(), BT::toStr(prev_status, true).c_str(),
+      BT::toStr(status, true).c_str());
+    std::fflush(stdout);
+  }
+};
+
+}  // namespace
+
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
@@ -33,7 +71,10 @@ int main(int argc, char ** argv)
     "/behavior_trees/tvarometr.xml";
 
   node->declare_parameter("tree_file", installed_tree);
-  node->declare_parameter("tick_period_s", 0.5);
+  // Fast, so that E halts a step at once and a ROS node's timeout fires when it
+  // is due rather than up to a tick later. The tree also wakes early when such
+  // a node has news - see the loop below.
+  node->declare_parameter("tick_period_s", 0.05);
   node->declare_parameter("groot2_port", 1667);
 
   const auto tree_file = node->get_parameter("tree_file").as_string();
@@ -47,6 +88,12 @@ int main(int argc, char ** argv)
   // here rather than in the tree, so the XML stays about behaviour.
   BT::RosNodeParams inference_params(node, "/inference_node/run_inference");
   factory.registerNodeType<tvarometr_orchestrator::RunInference>("RunInference", inference_params);
+
+  // The centring node answers at once; the scan itself runs for as long as it
+  // takes and reports through feedback, which no timeout here touches.
+  BT::RosNodeParams centring_params(node, "/centring_node/centre_face");
+  centring_params.server_timeout = std::chrono::seconds(3);
+  factory.registerNodeType<tvarometr_orchestrator::CentreFace>("CentreFace", centring_params);
 
   // Plain geometry, a couple of milliseconds, so the library's one-second
   // default timeout is left alone.
@@ -113,7 +160,7 @@ int main(int argc, char ** argv)
 
   // Prints every state change a node goes through, which is what a tick
   // actually looks like.
-  BT::StdCoutLogger tree_logger(tree);
+  QuietCoutLogger tree_logger(tree);
 
   // Groot2 attaches over TCP and draws the tree as it ticks. The container is
   // on the host network, so a Groot2 running on the host reaches this port with
@@ -134,12 +181,16 @@ int main(int argc, char ** argv)
 
   // An abort sends the tree back to waiting rather than ending it, so in normal
   // use this loop only stops on Ctrl+C.
-  rclcpp::Rate rate(1.0 / tick_period);
+  //
+  // tree.sleep and not a fixed-rate sleep: a ROS node that has just read a
+  // result or feedback for its own goal wakes the tree to act on it at once.
+  const auto tick_duration = std::chrono::duration_cast<std::chrono::system_clock::duration>(
+    std::chrono::duration<double>(tick_period));
   BT::NodeStatus status = BT::NodeStatus::RUNNING;
   while (rclcpp::ok() && status == BT::NodeStatus::RUNNING) {
     status = tree.tickOnce();
     rclcpp::spin_some(node);
-    rate.sleep();
+    tree.sleep(tick_duration);
   }
 
   RCLCPP_INFO(node->get_logger(), "Tree finished: %s", BT::toStr(status).c_str());

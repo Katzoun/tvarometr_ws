@@ -7,8 +7,8 @@
     # How high and how low the camera may go, in the goal's wobj, metres. These
     # are the cell's own numbers - measure them before the first run. A photo
     # pose outside them is refused rather than driven to.
-    min_z: 0.8
-    max_z: 1.6
+    min_z: 0.5
+    max_z: 1.3
 
     # Where the face belongs in the frame, as a fraction of the image height,
     # and how far off that still counts as centred. 0.4 is slightly above the
@@ -19,7 +19,7 @@
     # How much of the error one step corrects, and the longest single move in
     # metres. A gain below 1 undershoots instead of swinging past the target.
     gain: 0.7
-    max_step: 0.08
+    max_step: 0.1
 
     # When to give up: steps, seconds, and useless detections in a row. Enough
     # steps to feel the whole way from one Z limit to the other, because a step

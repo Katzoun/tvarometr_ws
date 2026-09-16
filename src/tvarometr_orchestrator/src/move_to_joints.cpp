@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+#include "tvarometr_orchestrator/cancel_orphaned_goals.hpp"
+
 namespace tvarometr_orchestrator
 {
 
@@ -71,6 +73,8 @@ BT::NodeStatus MoveToJoints::onResultReceived(const WrappedResult & result)
 BT::NodeStatus MoveToJoints::onFailure(
   BT::ActionNodeErrorCode error, const std::optional<WrappedResult> & result)
 {
+  cancelOrphanedGoals(error, *client_instance_->action_client, logger());
+
   if (result && result->result) {
     RCLCPP_ERROR(
       logger(), "Joint motion %s: %s", BT::toStr(error), result->result->message.c_str());
