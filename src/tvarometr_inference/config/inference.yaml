@@ -23,17 +23,20 @@ inference_node:
     # Where usb_cam publishes. The node keeps only the newest frame.
     image_topic: /image_raw
 
-    # The visitor is the tallest face near the axis. Shorter than this, a face is too
-    # far from the camera to count at all.
-    min_face_height_px: 100
+    # The visitor is the widest person near the axis - width, because somebody
+    # standing close is cut off by the top or the bottom of the frame long before
+    # they are narrow. Narrower than this, they are too far away to be the visitor.
+    min_person_width_px: 300
     # Vertical line over the floor mark, as a fraction of the image width (0.5 = centre).
-    # A face at axis_falloff from it counts half its height; 0.0 ignores the axis.
+    # Somebody axis_falloff from it counts half their width; 0.0 ignores the axis.
     # Keep the decimal point: an integer here stops the node from starting.
     axis_x: 0.5
     axis_falloff: 0.25
     # Warn when the runner-up scores at least this fraction of the winner.
     ambiguity_ratio: 0.8
+    # How long DetectFace waits for a frame taken after the robot stopped.
+    fresh_frame_timeout_s: 2.0
 
-    # Full pass onto /inference_node/debug_image at this rate, only while something
-    # subscribes to it. 0 turns it off.
+    # Keeps /inference_node/scene_image (the TV) and debug_image live at this rate,
+    # only while something watches. Attributes only for debug_image. 0 turns it off.
     preview_hz: 5.0

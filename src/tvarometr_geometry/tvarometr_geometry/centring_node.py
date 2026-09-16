@@ -4,21 +4,35 @@ The camera rides on the flange, so moving the arm moves the view: a child's
 face sits low in the frame, and walking the camera down to it is what gets
 RunInference a picture worth analysing.
 
-The control loop is not written yet. What is here is the wiring - the two
-things this node talks to - so that a missing piece says so on startup instead
-of halfway through a run.
+Only Z moves. X, Y and the orientation stay those of the photo pose the caller
+sends, and that pose is where every step is measured from - the robot's own
+reported position is never read. Z stays between min_z and max_z whatever the
+detector says.
+
+The visitor's face is not always in view - a child the camera looks over, or a
+tall visitor it sees the chest of. The detector still reports where they stand,
+so the camera feels its way: up when their box runs off the top of the frame,
+down when it sees nobody at all.
 """
 
+import time
+
 import rclpy
-from rclpy.action import ActionClient
+from geometry_msgs.msg import Pose, PoseArray
+from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
+from rclpy.action.server import ServerGoalHandle
+from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 
 from robot_control_msgs.action import ExecutePoseArray
+from tvarometr_geometry.centring import Centring
+from tvarometr_interfaces.action import CentreFace
 from tvarometr_interfaces.srv import DetectFace
 
 
 class CentringNode(Node):
-    """Holds the clients the centring loop will drive."""
+    """Serves CentreFace: look, move a little, look again."""
 
     def __init__(self):
         super().__init__("centring_node")
@@ -34,23 +48,68 @@ class CentringNode(Node):
         # fault, short enough to still be a startup message.
         self.declare_parameter("peer_timeout_s", 5.0)
 
-        self.detect_service = (
-            self.get_parameter("detect_service").get_parameter_value().string_value
-        )
-        self.motion_action = (
-            self.get_parameter("motion_action").get_parameter_value().string_value
-        )
+        # How high the camera may go and how low, in the goal's wobj. No default
+        # fits a cell, so these are what to set before the first run.
+        self.declare_parameter("min_z", 0.8)
+        self.declare_parameter("max_z", 1.6)
+        # Where the face belongs in the frame and how far off that may be, as
+        # fractions of the image height. Slightly above the middle, so the
+        # visitor's head has room and the robot is not looking at their chin.
+        self.declare_parameter("target_y", 0.4)
+        self.declare_parameter("tolerance", 0.05)
+        # How much of the error one step corrects. Below 1 so that an error in
+        # the pixels-to-metres estimate undershoots rather than oscillates.
+        self.declare_parameter("gain", 0.7)
+        self.declare_parameter("max_step", 0.08)
+        self.declare_parameter("max_steps", 15)
+        self.declare_parameter("timeout_s", 30.0)
+        # A face is about this tall, which is what turns pixels into metres.
+        self.declare_parameter("face_height_m", 0.22)
+        # Give up after this many detections in a row with nobody in front.
+        self.declare_parameter("max_lost_detections", 3)
+        # The detector waits for a frame taken after the robot stopped, so this
+        # covers that wait too.
+        self.declare_parameter("detect_timeout_s", 5.0)
+        # Slow: the camera is moving to look at somebody standing close by.
+        self.declare_parameter("speed", "100")
+        # Work everything out and log it, but send no motion goal.
+        self.declare_parameter("dry_run", False)
 
-        self.detect_client = self.create_client(DetectFace, self.detect_service)
+        self.detect_service = self._str("detect_service")
+        self.motion_action = self._str("motion_action")
+
+        self.cb_group = ReentrantCallbackGroup()
+        self.detect_client = self.create_client(
+            DetectFace, self.detect_service, callback_group=self.cb_group
+        )
         # Cartesian, because the correction is a shift of the camera and not an
         # angle on any one axis.
-        self.motion_client = ActionClient(self, ExecutePoseArray, self.motion_action)
-
-        timeout = (
-            self.get_parameter("peer_timeout_s").get_parameter_value().double_value
+        self.motion_client = ActionClient(
+            self, ExecutePoseArray, self.motion_action, callback_group=self.cb_group
         )
-        self._peer_timer = self.create_timer(timeout, self.report_peers)
+        self.action_server = ActionServer(
+            self,
+            CentreFace,
+            "centring_node/centre_face",
+            execute_callback=self.execute_cb,
+            goal_callback=self.goal_cb,
+            cancel_callback=lambda goal_handle: CancelResponse.ACCEPT,
+            callback_group=self.cb_group,
+        )
+
+        self._peer_timer = self.create_timer(
+            self._double("peer_timeout_s"), self.report_peers
+        )
         self.get_logger().info("Up. Checking what it can reach...")
+
+    def _str(self, name: str) -> str:
+        return self.get_parameter(name).get_parameter_value().string_value
+
+    def _double(self, name: str) -> float:
+        return self.get_parameter(name).get_parameter_value().double_value
+
+    def _int(self, name: str) -> int:
+        return self.get_parameter(name).get_parameter_value().integer_value
 
     def report_peers(self):
         """Says once whether both peers are there. Nothing here drives anything."""
@@ -65,16 +124,263 @@ class CentringNode(Node):
             else:
                 self.get_logger().warn(f"Not reachable: {name}")
 
+    # ============= ACTION =============
+
+    def goal_cb(self, goal_request) -> GoalResponse:
+        min_z, max_z = self._double("min_z"), self._double("max_z")
+        z = goal_request.photo_pose.position.z
+        if min_z >= max_z:
+            self.get_logger().error(
+                f"Goal rejected: min_z {min_z} is not below max_z {max_z}"
+            )
+            return GoalResponse.REJECT
+        if not min_z <= z <= max_z:
+            self.get_logger().error(
+                f"Goal rejected: the photo pose is at z {z:.3f}, outside [{min_z}, {max_z}]"
+            )
+            return GoalResponse.REJECT
+        return GoalResponse.ACCEPT
+
+    def execute_cb(self, goal_handle: ServerGoalHandle) -> CentreFace.Result:
+        request = goal_handle.request
+        tuning = Centring(
+            target_y=self._double("target_y"),
+            tolerance=self._double("tolerance"),
+            gain=self._double("gain"),
+            max_step=self._double("max_step"),
+            min_z=self._double("min_z"),
+            max_z=self._double("max_z"),
+            face_height_m=self._double("face_height_m"),
+        )
+        max_steps = self._int("max_steps")
+        max_lost = self._int("max_lost_detections")
+        deadline = time.monotonic() + self._double("timeout_s")
+
+        z = request.photo_pose.position.z
+        # The robot is standing at the photo pose already, so any frame from now
+        # on shows the scene from where the first move will start.
+        not_before = self.get_clock().now().to_msg()
+        lost = 0
+
+        for step_number in range(1, max_steps + 1):
+            if goal_handle.is_cancel_requested:
+                return self._cancelled(goal_handle, z, request)
+            if time.monotonic() > deadline:
+                return self._failed(goal_handle, z, request, "Ran out of time")
+
+            answer = self._detect(not_before)
+            if answer is None:
+                lost += 1
+                if lost >= max_lost:
+                    return self._failed(
+                        goal_handle,
+                        z,
+                        request,
+                        f"The detector is silent ({lost} tries)",
+                    )
+                continue
+
+            if not answer.success:
+                # Nobody in the frame at all, so the camera is looking over
+                # everyone's head - feel downwards for a short visitor.
+                step, state = tuning.nudge(z, -1), "searching"
+            elif answer.face_bbox.height == 0:
+                # Their face is not in view, so steer by the top of them instead.
+                blind = tuning.blind_step(
+                    z, answer.person_bbox.y_offset, answer.image_height
+                )
+                if blind is None:
+                    # Their head is where a face should be and the detector still
+                    # finds none - turned away. Moving would not help.
+                    lost += 1
+                    if lost >= max_lost:
+                        return self._failed(
+                            goal_handle,
+                            z,
+                            request,
+                            f"The visitor never looked at the camera ({lost} tries)",
+                        )
+                    continue
+                step, state = blind, "looking for the face"
+            else:
+                step = tuning.step(
+                    z,
+                    answer.face_bbox.y_offset + answer.face_bbox.height / 2,
+                    answer.face_bbox.height,
+                    answer.image_height,
+                )
+                if step.centred:
+                    state = "centred"
+                elif step.at_limit:
+                    state = "at limit"
+                else:
+                    state = "moving"
+
+            lost = 0
+            self._publish_feedback(goal_handle, step_number, step, state)
+
+            if step.centred:
+                return self._succeeded(
+                    goal_handle,
+                    z,
+                    request,
+                    f"Centred after {step_number - 1} move(s), {step.error_px:+.0f} px off",
+                )
+
+            if step.z != z:
+                ok, message = self._move(request, step.z)
+                if not ok:
+                    return self._failed(goal_handle, z, request, message)
+                z = step.z
+                not_before = self.get_clock().now().to_msg()
+
+            if step.at_limit:
+                if state in ("searching", "looking for the face"):
+                    # Nowhere left to go and still no face to analyse.
+                    return self._failed(
+                        goal_handle,
+                        z,
+                        request,
+                        f"Reached z {z:.3f} without the visitor's face in view",
+                    )
+                # As close as the limits allow. The face is not where we wanted
+                # it, but it is in the frame, so the run carries on.
+                return self._succeeded(
+                    goal_handle,
+                    z,
+                    request,
+                    f"Stopped at z {z:.3f}, still {step.error_px:+.0f} px off target",
+                    at_limit=True,
+                )
+
+        return self._failed(
+            goal_handle, z, request, f"Not centred in {max_steps} steps"
+        )
+
+    def _publish_feedback(self, goal_handle, step_number, step, state):
+        feedback = CentreFace.Feedback()
+        feedback.step = step_number
+        feedback.error_px = float(step.error_px)
+        feedback.z = float(step.z)
+        feedback.state = state
+        goal_handle.publish_feedback(feedback)
+
+    def _final_pose(self, request, z) -> Pose:
+        pose = Pose()
+        pose.position.x = request.photo_pose.position.x
+        pose.position.y = request.photo_pose.position.y
+        pose.position.z = z
+        pose.orientation = request.photo_pose.orientation
+        return pose
+
+    def _result(
+        self, request, z, message, success, at_limit=False
+    ) -> CentreFace.Result:
+        result = CentreFace.Result()
+        result.success = success
+        result.message = message
+        result.at_limit = at_limit
+        result.final_pose = self._final_pose(request, z)
+        return result
+
+    def _succeeded(self, goal_handle, z, request, message, at_limit=False):
+        goal_handle.succeed()
+        self.get_logger().info(message)
+        return self._result(request, z, message, success=True, at_limit=at_limit)
+
+    def _failed(self, goal_handle, z, request, message):
+        goal_handle.abort()
+        self.get_logger().warn(message)
+        return self._result(request, z, message, success=False)
+
+    def _cancelled(self, goal_handle, z, request):
+        goal_handle.canceled()
+        message = "Centring cancelled"
+        self.get_logger().warn(message)
+        return self._result(request, z, message, success=False)
+
+    # ============= PEERS =============
+
+    def _detect(self, not_before):
+        """Where the visitor is, or None when the detector does not answer.
+
+        An answer with success false means nobody is in the frame, which is
+        something the loop acts on rather than an error.
+        """
+        request = DetectFace.Request()
+        request.not_before = not_before
+        future = self.detect_client.call_async(request)
+        response = self._wait(future, self._double("detect_timeout_s"))
+        if response is None:
+            self.get_logger().warn(f"{self.detect_service} did not answer")
+            return None
+        if not response.success:
+            self.get_logger().warn(response.message)
+        return response
+
+    def _move(self, request, z) -> tuple[bool, str]:
+        """One MoveL to the photo pose at the new height."""
+        goal = ExecutePoseArray.Goal()
+        goal.motion_command = "MoveL"
+        goal.speed = self._str("speed")
+        goal.tool = request.tool
+        goal.wobj = request.wobj
+        path = PoseArray()
+        path.header.stamp = self.get_clock().now().to_msg()
+        path.poses = [self._final_pose(request, z)]
+        goal.path = path
+
+        if self.get_parameter("dry_run").get_parameter_value().bool_value:
+            self.get_logger().info(f"dry_run: would move to z {z:.3f}")
+            return True, ""
+
+        send = self.motion_client.send_goal_async(goal)
+        motion = self._wait(send, self._double("detect_timeout_s"))
+        if motion is None:
+            return False, f"{self.motion_action} did not answer"
+        if not motion.accepted:
+            return False, "The driver refused the move"
+
+        outcome = self._wait(motion.get_result_async(), self._double("timeout_s"))
+        if outcome is None:
+            motion.cancel_goal_async()
+            return False, "The robot did not report arriving"
+        if not outcome.result.success:
+            return False, f"Move failed: {outcome.result.message}"
+        return True, ""
+
+    @staticmethod
+    def _wait(future, timeout_s):
+        """The future's result, or None if it does not arrive within the timeout.
+
+        Blocks this thread only - the executor is what completes the future.
+        """
+        deadline = time.monotonic() + timeout_s
+        while not future.done():
+            if time.monotonic() > deadline:
+                return None
+            time.sleep(0.01)
+        return future.result()
+
 
 def main(args=None):
     rclpy.init(args=args)
-    node = CentringNode()
+    node = None
+    executor = None
     try:
-        rclpy.spin(node)
+        node = CentringNode()
+        # The loop waits on a service and an action from inside a callback, so
+        # the executor needs threads to spare.
+        executor = MultiThreadedExecutor(num_threads=4)
+        executor.add_node(node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     finally:
-        node.destroy_node()
+        if executor:
+            executor.shutdown(timeout_sec=5)
+        if node:
+            node.destroy_node()
         rclpy.try_shutdown()
 
 

@@ -1,16 +1,17 @@
-# Where the face sits in the newest camera frame, and nothing else.
-#
-# The centring loop needs this geometry many times over and none of the model
-# outputs, so it runs the detector alone. RunInference is the full pass - age,
-# gender and emotion on top - and costs several times as much, which is why it
-# runs once at the end on a frame that is already framed well.
-#
-# No request fields: like RunInference, the node works on whatever it last
-# received from the camera.
+# Where the visitor stands in a camera frame, from the detector alone.
+# The centring loop calls this over and over; RunInference is the full pass.
+
+# Only a frame taken at or after this time counts - the robot has stopped by
+# then. Zero takes the newest frame, however old.
+builtin_interfaces/Time not_before
 ---
+# True once somebody close enough to be the visitor is in the frame, whether or
+# not their face is. Everything below is only meaningful then.
 bool success
 string message
-# Only meaningful when success is true.
+sensor_msgs/RegionOfInterest person_bbox
+# Zero size when the visitor's face is not in view: their head is out of the
+# frame - the box then runs off the top edge - or turned away from the camera.
 sensor_msgs/RegionOfInterest face_bbox
 uint32 image_width
 uint32 image_height

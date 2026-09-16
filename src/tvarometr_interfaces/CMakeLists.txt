@@ -6,6 +6,7 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 find_package(ament_cmake REQUIRED)
+find_package(builtin_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
@@ -13,12 +14,13 @@ find_package(rosidl_default_generators REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/FaceAttributes.msg"
 
+  "action/CentreFace.action"
   "action/RunInference.action"
 
   "srv/DetectFace.srv"
   "srv/GenerateTrajectories.srv"
 
-  DEPENDENCIES geometry_msgs sensor_msgs
+  DEPENDENCIES builtin_interfaces geometry_msgs sensor_msgs
 )
 
 if(BUILD_TESTING)

@@ -1,0 +1,45 @@
+/**:
+  ros__parameters:
+    # Who to ask where the face is, and who moves the arm.
+    detect_service: /inference_node/detect_face
+    motion_action: /robot_controller/robot_robtarget_move
+
+    # How high and how low the camera may go, in the goal's wobj, metres. These
+    # are the cell's own numbers - measure them before the first run. A photo
+    # pose outside them is refused rather than driven to.
+    min_z: 0.8
+    max_z: 1.6
+
+    # Where the face belongs in the frame, as a fraction of the image height,
+    # and how far off that still counts as centred. 0.4 is slightly above the
+    # middle, so a head has room above it.
+    target_y: 0.4
+    tolerance: 0.05
+
+    # How much of the error one step corrects, and the longest single move in
+    # metres. A gain below 1 undershoots instead of swinging past the target.
+    gain: 0.7
+    max_step: 0.08
+
+    # When to give up: steps, seconds, and useless detections in a row. Enough
+    # steps to feel the whole way from one Z limit to the other, because a step
+    # with no face in view is a blind max_step.
+    max_steps: 15
+    timeout_s: 30.0
+    # Counts detections that say nothing useful: the detector silent, or the
+    # visitor's head in the frame with their face turned away.
+    max_lost_detections: 3
+    # The detector waits for a frame taken after the robot stopped, so allow for
+    # that wait as well.
+    detect_timeout_s: 5.0
+
+    # A face is about this tall in metres, which is what turns pixels into a move.
+    # The wobj Z axis points up, which the sign of the move assumes.
+    face_height_m: 0.22
+
+    # TCP speed in mm/s, as the driver wants it - text. Slow, the camera is
+    # moving in front of somebody standing close.
+    speed: "100"
+
+    # Run the loop and log every move without sending it to the robot.
+    dry_run: false

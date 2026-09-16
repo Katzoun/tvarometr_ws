@@ -73,9 +73,28 @@ loading, so they only need to be running.
   with three `PoseArray`s in metres: labels, values and the wipe. A service,
   since it takes a couple of milliseconds. The Czech wording of the board text
   is decided here. The text generator is described in `TRAJECTORIES.md`.
-- **`centring_node_exec`** will close the loop between the face detector and the
-  robot. So far it only checks it can reach `inference_node/detect_face` and the
-  driver's motion action.
+- **`centring_node_exec`** serves `centring_node/centre_face`: ask
+  `inference_node/detect_face` where the visitor's face is, move the camera a
+  little, ask again. Only Z changes - X, Y and the orientation stay those of the
+  `photo_pose` in the goal, which is also what every step is measured from, so
+  the robot's own position is never read. Z never leaves `[min_z, max_z]`, and a
+  goal whose photo pose is already outside them is refused.
+  - A face is about `face_height_m` tall, so its height in the frame turns the
+    error in pixels into a move in metres. One step corrects `gain` of it, up to
+    `max_step`.
+  - With no face to measure it feels its way a blind `max_step` at a time
+    towards the top of the visitor's body box, which is roughly where their head
+    is: up when that runs off the top of the frame, down when they sit low in
+    it. Seeing nobody at all means the camera is above everyone, so it feels
+    downwards. A visitor whose head is already where a face belongs but whose
+    face is turned away is waited out, not driven at.
+  - It ends when the face sits within `tolerance` of `target_y`, or the camera
+    reaches a Z limit with the face still off target - that is a success with
+    `at_limit` set, because the face is in the frame either way. A Z limit with
+    no face in view is a failure, as is running out of steps or time, or
+    `max_lost_detections` useless answers in a row.
+  - Settings are in `config/centring.yaml`; `dry_run` runs the whole loop and
+    logs the moves without sending them to the robot.
 
 ### `tvarometr_inference`
 
@@ -87,16 +106,31 @@ loading, so they only need to be running.
     for age and gender and ResEmoteNet for emotion, and answers with
     `FaceAttributes`. Labels are the models' English ones.
   - `inference_node/detect_face` (service) runs the detector alone and returns
-    the face bounding box - the cheap call the centring loop repeats.
-  - Both work on the **visitor**: the face with the best height times a weight
-    for how far it is from `axis_x`, the vertical line over the floor mark where
-    visitors stand. A face `axis_falloff` away from the line counts half. Faces
-    shorter than `min_face_height_px` are too far away to count at all, and a
-    runner-up scoring nearly as high is logged as ambiguous.
-  - `/inference_node/debug_image` shows every face boxed and labelled with its
-    height and axis weight, the selected one in green and the ones too far away
-    in red, with the axis in yellow and its half-weight distance dashed. While something
-    subscribes, the node also runs a full pass at `preview_hz` just for this view.
+    where the visitor stands and where their face is - the cheap call the
+    centring loop repeats.
+  - Both work on the **visitor**: the person with the best box width times a
+    weight for how far they are from `axis_x`, the vertical line over the floor
+    mark where visitors stand. Somebody `axis_falloff` away from the line counts
+    half. People narrower than `min_person_width_px` are too far away to count at
+    all, and a runner-up scoring nearly as high is logged as ambiguous.
+    Width, and the person rather than the face, because somebody standing close
+    is cut off by the top or the bottom of the frame long before they are narrow:
+    a child the camera looks over, or a tall visitor it sees the chest of. Their
+    face then only says where to look, and `detect_face` reports it as missing
+    rather than picking a bystander who happens to have one.
+    There is no other rule and no memory between frames, so every call and the
+    preview pick the same person from the same frame. Centring moves the camera
+    only up and down, which changes neither where somebody stands across the
+    image nor how wide they are, so the visitor keeps winning while it moves.
+  - `/inference_node/scene_image` is for the TV beside the robot: plain boxes,
+    the visitor's in green, the rest grey.
+  - `/inference_node/debug_image` boxes everyone, labelled with their width and
+    axis weight, the visitor in green and the people too far away in red, their
+    faces outlined as well, with the axis in yellow and its half-weight distance
+    dashed.
+  - Both images come from every request, and from a timer at `preview_hz` while
+    something watches them. The timer runs the detector alone, plus age, gender
+    and emotion when `debug_image` has a subscriber.
 
 Weights live in `models/` (Git LFS) and are mounted into the inference container at
 `/opt/tvarometr/models`:
@@ -211,7 +245,7 @@ RAPID on the controller is maintained by hand, not from this repo.
 
 ```bash
 ros2 run tvarometr_geometry trajectory_node_exec
-ros2 run tvarometr_geometry centring_node_exec     # not needed until centring is real
+ros2 launch tvarometr_geometry centring.launch.py  # config:=... for another YAML
 ```
 
 ### 3. Inference - inference container
@@ -220,6 +254,7 @@ ros2 run tvarometr_geometry centring_node_exec     # not needed until centring i
 ros2 launch tvarometr_inference inference.launch.py   # use_camera:=false without a webcam
 ros2 launch tvarometr_inference camera.launch.py      # or the camera alone, for tuning it
 ros2 run rqt_image_view rqt_image_view /inference_node/debug_image   # faces, labels, who is picked
+ros2 run rqt_image_view rqt_image_view /inference_node/scene_image   # what the TV shows
 ```
 
 GUI tools open on the host display. The container reaches the host X server
@@ -333,10 +368,9 @@ Next, in order:
 2. **Inference in the tree** - bring the inference node up next to the driver,
    check it every run, and replace `MockInference` with `RunInference`.
 3. **Real photo pose** - jog the robot to it and write the joints into the tree.
-4. **Face centring** - a `CentreFace` action served by `centring_node`: detect
-   the face, move the robot a little, wait for a frame taken after it stopped,
-   repeat until the face is centred or time runs out. Still open: how the camera
-   is mounted, and whether to turn the camera or move it.
+4. **Face centring in the tree** - a C++ `CentreFace` node that sends the photo
+   pose the robot has just driven to, then a run against the robot with
+   `dry_run` first and a small `gain` after that. The loop itself is written.
 
 Known gaps, left for later: an abort while drawing leaves a dirty board; the
 eraser has no tooldata of its own yet; the driver's RWS timeout can be too short

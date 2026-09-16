@@ -11,6 +11,7 @@ robot writes on the board is the trajectory node's business.
 
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar, cast
@@ -26,6 +27,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.lifecycle import Node as LifecycleNode
 from rclpy.lifecycle import State, TransitionCallbackReturn
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.time import Time
 from sensor_msgs.msg import Image
 
 # MiVOLO and ResEmoteNet are vendored as-is and import themselves absolutely
@@ -42,12 +44,12 @@ from PIL import Image as PILImage
 from resemotenet.ResEmoteNet import ResEmoteNet
 from torchvision import transforms
 
-from tvarometr_inference.annotation import draw_faces
+from tvarometr_inference.annotation import draw_debug, draw_scene
 from tvarometr_inference.attributes import (
     build_face_attributes,
     build_region_of_interest,
 )
-from tvarometr_inference.face_selection import Selection, select_nearest_face
+from tvarometr_inference.visitor_selection import Visitor, select_visitor
 from tvarometr_interfaces.action import RunInference
 from tvarometr_interfaces.srv import DetectFace
 
@@ -67,13 +69,15 @@ class Models:
 
 @dataclass
 class FrameAnalysis:
-    """Every face in one frame, and which of them is the visitor."""
+    """Everyone in one frame, which of them is the visitor, and their face."""
 
-    boxes: list[tuple[int, int, int, int]]  # (x1, y1, x2, y2), clamped to the frame
-    face_inds: list[int]  # the detector's own index for each box
-    selection: Selection
+    persons: list[tuple[int, int, int, int]]  # (x1, y1, x2, y2), clamped to the frame
+    faces: list[tuple[int, int, int, int]]
+    person_inds: list[int]  # the detector's own index for each person box
+    face_inds: list[int]  # and for each face box
+    visitor: Visitor
     detections: PersonAndFaceResult
-    # box index -> (label, confidence), full pass only
+    # face index -> (label, confidence), full pass only
     emotions: dict[int, tuple[str, float]]
     # the selection axis this frame was judged against
     axis_x: float
@@ -109,11 +113,13 @@ class InferenceNode(LifecycleNode):
         self.declare_parameter("device", "cpu")
         self.declare_parameter("image_topic", "/image_raw")
         # Read on every frame, so `ros2 param set` tunes them live.
-        self.declare_parameter("min_face_height_px", 100)
+        self.declare_parameter("min_person_width_px", 300)
         self.declare_parameter("ambiguity_ratio", 0.8)
         self.declare_parameter("axis_x", 0.5)
         self.declare_parameter("axis_falloff", 0.25)
         self.declare_parameter("preview_hz", 0.0)
+        # How long DetectFace waits for a frame taken after not_before.
+        self.declare_parameter("fresh_frame_timeout_s", 2.0)
 
         requested_device = (
             self.get_parameter("device").get_parameter_value().string_value
@@ -179,6 +185,10 @@ class InferenceNode(LifecycleNode):
         self.debug_publisher = self.create_publisher(
             Image, f"{self.NODE_NAME}/debug_image", 1
         )
+        # The same selection without labels, for the TV beside the robot.
+        self.scene_publisher = self.create_publisher(
+            Image, f"{self.NODE_NAME}/scene_image", 1
+        )
 
         self._models: Models | None = None
         # The preview, the action and the service all reach the same models.
@@ -234,7 +244,8 @@ class InferenceNode(LifecycleNode):
                 callback_group=MutuallyExclusiveCallbackGroup(),
             )
             self.logger.info(
-                f"Preview at {preview_hz} Hz on /{self.NODE_NAME}/debug_image"
+                f"Preview at {preview_hz} Hz on /{self.NODE_NAME}/scene_image "
+                f"and /{self.NODE_NAME}/debug_image"
             )
         return super().on_activate(state)
 
@@ -312,29 +323,36 @@ class InferenceNode(LifecycleNode):
         goal_handle.publish_feedback(feedback)
         with self._model_lock:
             analysis = self._analyse(img, full=True)
-        self._publish_debug(img, analysis, frame.header)
+        self._publish_images(img, analysis, frame.header)
 
-        k = analysis.selection.index
-        if k is None:
+        visitor = analysis.visitor
+        if visitor.person is None:
             return self._abort(goal_handle, result, self._nobody_message(analysis))
-        idx = analysis.face_inds[k]
-        if analysis.detections.ages[idx] is None or k not in analysis.emotions:
+        if visitor.face is None:
             return self._abort(
-                goal_handle, result, "The models gave no answer for the nearest face"
+                goal_handle, result, "The visitor's face is not in the frame"
             )
-        if analysis.selection.ambiguous:
+        idx = analysis.face_inds[visitor.face]
+        if (
+            analysis.detections.ages[idx] is None
+            or visitor.face not in analysis.emotions
+        ):
+            return self._abort(
+                goal_handle, result, "The models gave no answer for the visitor's face"
+            )
+        if visitor.ambiguous:
             self.logger.warning(
-                "Two faces are nearly the same size - this may be the wrong person"
+                "Two people are nearly the same width - this may be the wrong person"
             )
 
-        emotion, emotion_confidence = analysis.emotions[k]
+        emotion, emotion_confidence = analysis.emotions[visitor.face]
         height, width = img.shape[:2]
         result.attributes = build_face_attributes(
             age=analysis.detections.ages[idx],
             gender=analysis.detections.genders[idx],
             emotion=emotion,
             emotion_confidence=emotion_confidence,
-            bbox=analysis.boxes[k],
+            bbox=analysis.faces[visitor.face],
             image_size=(width, height),
         )
 
@@ -357,7 +375,7 @@ class InferenceNode(LifecycleNode):
     # ============= SERVICE =============
 
     def detect_cb(self, request, response) -> DetectFace.Response:
-        """Where the nearest face is, without the models that say anything about it.
+        """Where the visitor is, without the models that say anything about them.
 
         Quiet on the happy path: the centring loop calls this over and over.
         """
@@ -367,7 +385,7 @@ class InferenceNode(LifecycleNode):
             return response
 
         try:
-            frame, img = self._newest_image()
+            frame, img = self._newest_image(request.not_before)
         except NoImage as e:
             response.success = False
             response.message = str(e)
@@ -375,22 +393,30 @@ class InferenceNode(LifecycleNode):
 
         with self._model_lock:
             analysis = self._analyse(img, full=False)
-        self._publish_debug(img, analysis, frame.header)
+        self._publish_images(img, analysis, frame.header)
 
-        k = analysis.selection.index
-        if k is None:
+        visitor = analysis.visitor
+        if visitor.person is None:
             response.success = False
             response.message = self._nobody_message(analysis)
             return response
 
         height, width = img.shape[:2]
-        response.face_bbox = build_region_of_interest(
-            analysis.boxes[k], (width, height)
-        )
+        person = analysis.persons[visitor.person]
+        response.person_bbox = build_region_of_interest(person, (width, height))
         response.image_width = width
         response.image_height = height
         response.success = True
 
+        if visitor.face is None:
+            response.message = (
+                f"visitor {person[2] - person[0]} px wide, their face is not in view"
+            )
+            return response
+
+        response.face_bbox = build_region_of_interest(
+            analysis.faces[visitor.face], (width, height)
+        )
         roi = response.face_bbox
         response.message = (
             f"face at ({roi.x_offset}, {roi.y_offset}), {roi.width}x{roi.height}"
@@ -400,8 +426,9 @@ class InferenceNode(LifecycleNode):
     # ============= PREVIEW =============
 
     def preview_cb(self):
-        """A full pass now and then, only to be looked at in rqt_image_view."""
-        if self.debug_publisher.get_subscription_count() == 0:
+        """Keeps both images live between requests; attributes only for debug_image."""
+        watching_debug = self.debug_publisher.get_subscription_count() > 0
+        if not watching_debug and self.scene_publisher.get_subscription_count() == 0:
             return
         try:
             frame, img = self._newest_image()
@@ -411,15 +438,20 @@ class InferenceNode(LifecycleNode):
         if not self._model_lock.acquire(blocking=False):
             return
         try:
-            analysis = self._analyse(img, full=True)
+            analysis = self._analyse(img, full=watching_debug)
         finally:
             self._model_lock.release()
-        self._publish_debug(img, analysis, frame.header)
+        self._publish_images(img, analysis, frame.header)
 
     # ============= ANALYSIS =============
 
-    def _newest_image(self) -> tuple[Image, np.ndarray]:
-        """The newest frame and the same as a BGR array; NoImage when there is none."""
+    def _newest_image(self, not_before=None) -> tuple[Image, np.ndarray]:
+        """The newest frame and the same as a BGR array; NoImage when there is none.
+
+        With a non-zero `not_before`, waits for a frame taken at or after it.
+        """
+        if not_before is not None and (not_before.sec or not_before.nanosec):
+            self._wait_for_frame_after(Time.from_msg(not_before))
         frame = self._latest_frame
         if frame is None:
             raise NoImage(
@@ -429,6 +461,20 @@ class InferenceNode(LifecycleNode):
             return frame, self.bridge.imgmsg_to_cv2(frame, desired_encoding="bgr8")
         except Exception as e:
             raise NoImage(f"Error converting image: {e}") from e
+
+    def _wait_for_frame_after(self, not_before: Time):
+        timeout = (
+            self.get_parameter("fresh_frame_timeout_s")
+            .get_parameter_value()
+            .double_value
+        )
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            frame = self._latest_frame
+            if frame is not None and Time.from_msg(frame.header.stamp) >= not_before:
+                return
+            time.sleep(0.01)
+        raise NoImage(f"No frame taken after not_before within {timeout:.1f} s")
 
     def _analyse(self, img, full):
         """Detector over one frame; a full pass adds age, gender and emotion per face.
@@ -441,21 +487,29 @@ class InferenceNode(LifecycleNode):
 
         height, width = img.shape[:2]
         detections = models.detector.predict(img)
+        # Which face belongs to whom. MiVOLO does this for itself on a full pass;
+        # the visitor has to be picked on every pass, full or not.
+        detections.associate_faces_with_persons()
+        person_inds = detections.get_bboxes_inds("person")
         face_inds = detections.get_bboxes_inds("face")
-        boxes = []
-        for i in face_inds:
-            x1, y1, x2, y2 = (
-                int(v) for v in detections.get_bbox_by_ind(i, height, width)
-            )
-            boxes.append((x1, y1, x2, y2))
+        persons = self._boxes(detections, person_inds, height, width)
+        faces = self._boxes(detections, face_inds, height, width)
+
+        face_of_person = {}
+        for k, face_ind in enumerate(face_inds):
+            person_ind = detections.face_to_person_map.get(face_ind)
+            if person_ind in person_inds:
+                face_of_person[person_inds.index(person_ind)] = k
+
         axis_x = self.get_parameter("axis_x").get_parameter_value().double_value
         axis_falloff = (
             self.get_parameter("axis_falloff").get_parameter_value().double_value
         )
-        selection = select_nearest_face(
-            boxes,
+        visitor = select_visitor(
+            persons,
+            face_of_person,
             width,
-            self.get_parameter("min_face_height_px")
+            self.get_parameter("min_person_width_px")
             .get_parameter_value()
             .integer_value,
             self.get_parameter("ambiguity_ratio").get_parameter_value().double_value,
@@ -466,52 +520,87 @@ class InferenceNode(LifecycleNode):
         emotions = {}
         if full and face_inds:
             models.mivolo.predict(img, detections)
-            for k, (x1, y1, x2, y2) in enumerate(boxes):
+            for k, (x1, y1, x2, y2) in enumerate(faces):
                 if x2 > x1 and y2 > y1:
                     emotions[k] = self._predict_emotion(
                         models.resemotenet, img[y1:y2, x1:x2]
                     )
 
         return FrameAnalysis(
-            boxes, face_inds, selection, detections, emotions, axis_x, axis_falloff
+            persons,
+            faces,
+            person_inds,
+            face_inds,
+            visitor,
+            detections,
+            emotions,
+            axis_x,
+            axis_falloff,
         )
 
     @staticmethod
+    def _boxes(detections, inds, height, width) -> list[tuple[int, int, int, int]]:
+        """The detector's boxes as (x1, y1, x2, y2), clamped to the frame."""
+        boxes = []
+        for i in inds:
+            x1, y1, x2, y2 = (
+                int(v) for v in detections.get_bbox_by_ind(i, height, width)
+            )
+            boxes.append((x1, y1, x2, y2))
+        return boxes
+
+    @staticmethod
     def _nobody_message(analysis):
-        if not analysis.boxes:
-            return "No face detected"
+        if not analysis.persons:
+            return "Nobody detected"
         return (
-            f"{len(analysis.boxes)} face(s) seen, none as tall as min_face_height_px"
-            " - nobody close enough"
+            f"{len(analysis.persons)} person(s) seen, none as wide as"
+            " min_person_width_px - nobody close enough"
         )
 
-    def _publish_debug(self, img, analysis, header):
+    def _publish_images(self, img, analysis, header):
+        """Both views of one analysis, each only if someone is watching."""
+        if self.scene_publisher.get_subscription_count() > 0:
+            scene = draw_scene(img, analysis.persons, analysis.faces, analysis.visitor)
+            msg = self.bridge.cv2_to_imgmsg(scene, encoding="bgr8")
+            msg.header = header
+            self.scene_publisher.publish(msg)
         if self.debug_publisher.get_subscription_count() == 0:
             return
 
+        visitor = analysis.visitor
         labels = []
-        for k, (x1, y1, x2, y2) in enumerate(analysis.boxes):
-            text = f"h{y2 - y1} w{analysis.selection.weights[k]:.2f}"
-            idx = analysis.face_inds[k]
-            if analysis.detections.ages[idx] is not None:
-                text += f" {analysis.detections.ages[idx]:.0f} {analysis.detections.genders[idx]}"
-            if k in analysis.emotions:
-                emotion, confidence = analysis.emotions[k]
-                text += f" {emotion} {confidence:.2f}"
+        for k, (x1, y1, x2, y2) in enumerate(analysis.persons):
+            text = f"w{x2 - x1} x{visitor.weights[k]:.2f}"
+            face = visitor.face if k == visitor.person else None
+            if face is not None:
+                idx = analysis.face_inds[face]
+                if analysis.detections.ages[idx] is not None:
+                    text += (
+                        f" {analysis.detections.ages[idx]:.0f}"
+                        f" {analysis.detections.genders[idx]}"
+                    )
+                if face in analysis.emotions:
+                    emotion, confidence = analysis.emotions[face]
+                    text += f" {emotion} {confidence:.2f}"
             labels.append(text)
 
-        selection = analysis.selection
-        status = f"{len(analysis.boxes)} face(s)"
-        if selection.index is None and analysis.boxes:
-            status += " - nobody close enough"
-        elif selection.ambiguous:
-            status += " - AMBIGUOUS"
+        status = f"{len(analysis.persons)} person(s)"
+        if visitor.person is None:
+            if analysis.persons:
+                status += " - nobody close enough"
+        else:
+            if visitor.face is None:
+                status += " - visitor's face not in view"
+            if visitor.ambiguous:
+                status += " - AMBIGUOUS"
 
-        annotated = draw_faces(
+        annotated = draw_debug(
             img,
-            analysis.boxes,
+            analysis.persons,
+            analysis.faces,
             labels,
-            selection,
+            visitor,
             status,
             analysis.axis_x,
             analysis.axis_falloff,
