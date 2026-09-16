@@ -39,9 +39,8 @@ RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
         > /etc/apt/sources.list.d/ros2.list \
     && apt-get update && apt-get install -y --no-install-recommends \
         ros-humble-ros-base \
-        ros-humble-cv-bridge \
-        ros-humble-usb-cam \
         ros-humble-rqt-image-view \
+        ros-humble-image-transport-plugins \
         ros-humble-sensor-msgs \
         ros-humble-geometry-msgs \
         ros-humble-std-msgs \

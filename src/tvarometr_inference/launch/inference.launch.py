@@ -27,7 +27,7 @@ def generate_launch_description():
         "use_camera",
         default_value="true",
         description="Start the camera. Turn it off on a machine with no webcam - "
-        "the inference node still picks up whatever publishes /image_raw",
+        "the inference node still picks up whatever publishes /image_raw/compressed",
     )
 
     camera = IncludeLaunchDescription(

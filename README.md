@@ -37,7 +37,7 @@ Four processes talk over ROS 2, spread over three containers:
 | --- | --- | --- |
 | `orchestrator` - the behaviour tree | `tvarometr_orchestrator` | orchestrator |
 | `trajectory_node`, `centring_node` | `tvarometr_geometry` | orchestrator |
-| `usb_cam`, `inference_node` | `tvarometr_inference` | inference (GPU) |
+| `camera`, `inference_node` | `tvarometr_inference` | inference (GPU) |
 | `robot_controller` | `robot_control` (separate repo) | driver |
 
 ### `tvarometr_orchestrator`
@@ -104,16 +104,22 @@ loading, so they only need to be running.
 
 ### `tvarometr_inference`
 
-- **`usb_cam`** streams the webcam on `/image_raw`. `camera.launch.py` sets the
-  camera's V4L2 controls first and then starts it; `inference.launch.py` includes it.
+- **`camera_node_exec`** reads the webcam through OpenCV and publishes its own
+  JPEGs on `/image_raw/compressed`, undecoded. `camera.launch.py` sets the
+  camera's V4L2 controls first and then starts it; `inference.launch.py`
+  includes it. It replaces usb_cam, whose raw MJPEG mode segfaults in 0.8.1.
 - **`inference_node_exec`** is a managed node: configure loads the weights,
-  activate starts accepting requests. It keeps only the newest frame.
-  - `inference_node/run_inference` (action) runs YOLOv8 face detection, MiVOLO
-    for age and gender and ResEmoteNet for emotion, and answers with
-    `FaceAttributes`. Labels are the models' English ones.
-  - `inference_node/detect_face` (service) runs the detector alone and returns
-    where the visitor stands and where their face is - the cheap call the
-    centring loop repeats.
+  activate starts one thread that runs YOLOv8 on every new frame, publishes the
+  images below and keeps the result. Nothing else touches the models, so a
+  request never holds up the preview.
+  - `inference_node/run_inference` (action) collects the visitor's face from
+    `samples` frames, running MiVOLO for age and gender and ResEmoteNet for
+    emotion on each, and answers with `FaceAttributes`: the median age and the
+    averaged gender and emotion probabilities. Fewer than `min_samples` within
+    `sample_timeout_s` fails the goal. Labels are the models' English ones.
+  - `inference_node/detect_face` (service) answers from the latest analysed
+    frame taken after `not_before`: where the visitor stands and where their face
+    is - the cheap call the centring loop repeats.
   - Both work on the **visitor**: the person with the best box width times a
     weight for how far they are from `axis_x`, the vertical line over the floor
     mark where visitors stand. Somebody `axis_falloff` away from the line counts
@@ -128,15 +134,15 @@ loading, so they only need to be running.
     preview pick the same person from the same frame. Centring moves the camera
     only up and down, which changes neither where somebody stands across the
     image nor how wide they are, so the visitor keeps winning while it moves.
-  - `/inference_node/scene_image` is for the TV beside the robot: plain boxes,
-    the visitor's in green, the rest grey.
-  - `/inference_node/debug_image` boxes everyone, labelled with their width and
-    axis weight, the visitor in green and the people too far away in red, their
-    faces outlined as well, with the axis in yellow and its half-weight distance
-    dashed.
-  - Both images come from every request, and from a timer at `preview_hz` while
-    something watches them. The timer runs the detector alone, plus age, gender
-    and emotion when `debug_image` has a subscriber.
+  - `/inference_node/scene_image/compressed` is for the TV beside the robot:
+    plain boxes, the visitor's in green, the rest grey.
+  - `/inference_node/debug_image/compressed` boxes everyone, labelled with their
+    width and axis weight, the visitor in green and the people too far away in
+    red, their faces outlined as well, with the axis in yellow and its
+    half-weight distance dashed.
+  - Both go out as JPEG on every analysed frame while something watches them.
+    Age, gender and emotion are worked out only for `debug_image` and while a
+    goal is collecting.
 
 Weights live in `models/` (Git LFS) and are mounted into the inference container at
 `/opt/tvarometr/models`:
@@ -259,8 +265,8 @@ ros2 launch tvarometr_geometry centring.launch.py  # config:=... for another YAM
 ```bash
 ros2 launch tvarometr_inference inference.launch.py   # use_camera:=false without a webcam
 ros2 launch tvarometr_inference camera.launch.py      # or the camera alone, for tuning it
-ros2 run rqt_image_view rqt_image_view /inference_node/debug_image   # faces, labels, who is picked
-ros2 run rqt_image_view rqt_image_view /inference_node/scene_image   # what the TV shows
+ros2 run rqt_image_view rqt_image_view /inference_node/debug_image/compressed   # faces, labels, who is picked
+ros2 run rqt_image_view rqt_image_view /inference_node/scene_image/compressed   # what the TV shows
 ```
 
 GUI tools open on the host display. The container reaches the host X server
@@ -274,7 +280,7 @@ The tree configures and activates the node itself. To try it without the tree:
 ```bash
 ros2 lifecycle set /inference_node configure        # loads the weights, takes a while
 ros2 lifecycle set /inference_node activate
-ros2 topic hz /image_raw
+ros2 topic hz /image_raw/compressed
 ros2 action send_goal /inference_node/run_inference tvarometr_interfaces/action/RunInference {}
 ```
 
@@ -342,13 +348,14 @@ All in `tvarometr_inference/config/`, read at startup - restart the launch after
 editing:
 
 - `inference.yaml` - device, weights directory, image topic, how the visitor is
-  picked, preview rate. The selection parameters can also be changed live, which is the easy way to
-  line the axis up with the floor mark: `ros2 param set /inference_node axis_x 0.45`.
-- `usb_cam.yaml` - video device, resolution, framerate.
+  picked, how many frames `RunInference` averages, JPEG quality. The selection
+  parameters can also be changed live, which is the easy way to line the axis up
+  with the floor mark: `ros2 param set /inference_node axis_x 0.45`.
+- `camera.yaml` - video device, resolution, framerate, from the MJPG modes
+  `v4l2-ctl -d /dev/video0 --list-formats-ext` lists. 30 fps allows a 33 ms
+  exposure; the GPU analyses about 20 frames a second anyway.
 - `camera_controls.yaml` - exposure, focus, white balance and the rest, under the
-  names `v4l2-ctl -d /dev/video0 --list-ctrls-menus` shows. usb_cam 0.8 sets
-  these under older V4L2 names, so its own exposure and focus parameters do
-  nothing on this camera and it prints three harmless `unknown control` lines.
+  names `v4l2-ctl -d /dev/video0 --list-ctrls-menus` shows.
 
 ### Trajectories
 
@@ -388,7 +395,7 @@ tvarometr_ws/
 │   │   └── include/, src/          # one BT node per pair; orchestrator_node.cpp is main
 │   ├── tvarometr_geometry/         # trajectory and centring nodes (Python)
 │   ├── tvarometr_inference/        # camera and the networks (Python, GPU)
-│   │   ├── config/                 # inference.yaml, usb_cam.yaml, camera_controls.yaml
+│   │   ├── config/                 # inference.yaml, camera.yaml, camera_controls.yaml
 │   │   └── tvarometr_inference/vendor/   # MiVOLO and ResEmoteNet, as-is
 │   ├── tvarometr_interfaces/       # msg, srv, action
 │   ├── abb_rws2_ros2_driver/       # imported by vcstool, git-ignored

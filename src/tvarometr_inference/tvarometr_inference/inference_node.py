@@ -1,12 +1,6 @@
 """Face detection with age, gender and emotion estimation.
 
-The camera streams continuously and this node keeps only the newest frame; the
-models run when someone sends a RunInference goal. Loading them takes a while
-and needs the weights on disk, so it happens on configure rather than at
-startup - an unconfigured node costs nothing.
-
-Labels come out as the models wrote them, in English. The Czech wording the
-robot writes on the board is the trajectory node's business.
+One thread runs the models on the newest frame; requests only read its results.
 """
 
 import sys
@@ -19,16 +13,15 @@ from typing import ClassVar, cast
 import cv2
 import rclpy
 import torch
-from cv_bridge import CvBridge
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.action.server import ServerGoalHandle
-from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
+from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.lifecycle import Node as LifecycleNode
 from rclpy.lifecycle import State, TransitionCallbackReturn
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import CompressedImage
 
 # MiVOLO and ResEmoteNet are vendored as-is and import themselves absolutely
 # (from mivolo.model import ...), so their directory goes on the path instead of
@@ -45,6 +38,7 @@ from resemotenet.ResEmoteNet import ResEmoteNet
 from torchvision import transforms
 
 from tvarometr_inference.annotation import draw_debug, draw_scene
+from tvarometr_inference.attribute_averaging import Sample, average, male_probability
 from tvarometr_inference.attributes import (
     build_face_attributes,
     build_region_of_interest,
@@ -55,7 +49,7 @@ from tvarometr_interfaces.srv import DetectFace
 
 
 class NoImage(Exception):
-    """There is no camera frame to work on; the message says why."""
+    """There is no analysed frame to answer from; the message says why."""
 
 
 @dataclass
@@ -77,11 +71,21 @@ class FrameAnalysis:
     face_inds: list[int]  # and for each face box
     visitor: Visitor
     detections: PersonAndFaceResult
-    # face index -> (label, confidence), full pass only
-    emotions: dict[int, tuple[str, float]]
+    # The visitor's emotion, one probability per label; full pass only.
+    emotion_probabilities: tuple[float, ...] | None
     # the selection axis this frame was judged against
     axis_x: float
     axis_falloff: float
+
+
+@dataclass
+class AnalysedFrame:
+    """The loop's latest result, as the requests read it."""
+
+    stamp: Time  # when the camera took the frame
+    width: int
+    height: int
+    analysis: FrameAnalysis
 
 
 class InferenceNode(LifecycleNode):
@@ -111,15 +115,20 @@ class InferenceNode(LifecycleNode):
             "resemotenet_path", str(models_dir / "affectnet7_model.pth")
         )
         self.declare_parameter("device", "cpu")
-        self.declare_parameter("image_topic", "/image_raw")
+        self.declare_parameter("image_topic", "/image_raw/compressed")
         # Read on every frame, so `ros2 param set` tunes them live.
         self.declare_parameter("min_person_width_px", 300)
         self.declare_parameter("ambiguity_ratio", 0.8)
         self.declare_parameter("axis_x", 0.5)
         self.declare_parameter("axis_falloff", 0.25)
-        self.declare_parameter("preview_hz", 0.0)
         # How long DetectFace waits for a frame taken after not_before.
         self.declare_parameter("fresh_frame_timeout_s", 2.0)
+        # RunInference averages the visitor's face over this many frames, and
+        # gives up when fewer than min_samples arrive within the timeout.
+        self.declare_parameter("samples", 10)
+        self.declare_parameter("min_samples", 5)
+        self.declare_parameter("sample_timeout_s", 5.0)
+        self.declare_parameter("jpeg_quality", 80)
 
         requested_device = (
             self.get_parameter("device").get_parameter_value().string_value
@@ -168,32 +177,37 @@ class InferenceNode(LifecycleNode):
             self.get_parameter("image_topic").get_parameter_value().string_value
         )
 
-        # The camera driver streams continuously and we only ever care about the
-        # newest frame, so keep a depth of 1 and match the sensor-data QoS the
-        # driver publishes with.
+        # Only the newest frame matters, and it stays JPEG until the loop takes it.
         image_qos = QoSProfile(
             depth=1,
             reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
         )
-        self._latest_frame: Image | None = None
+        self._frame: CompressedImage | None = None
+        self._frame_arrived = threading.Condition()
         self.image_subscription = self.create_subscription(
-            Image, self.image_topic, self.image_callback, image_qos
+            CompressedImage, self.image_topic, self.image_callback, image_qos
         )
 
-        self.bridge = CvBridge()
+        # JPEG too: a raw 1080p frame is 6 MB, too much to push out at loop rate.
         self.debug_publisher = self.create_publisher(
-            Image, f"{self.NODE_NAME}/debug_image", 1
+            CompressedImage, f"{self.NODE_NAME}/debug_image/compressed", 1
         )
         # The same selection without labels, for the TV beside the robot.
         self.scene_publisher = self.create_publisher(
-            Image, f"{self.NODE_NAME}/scene_image", 1
+            CompressedImage, f"{self.NODE_NAME}/scene_image/compressed", 1
         )
 
         self._models: Models | None = None
-        # The preview, the action and the service all reach the same models.
-        self._model_lock = threading.Lock()
-        self._preview_timer = None
+
+        # What the loop hands over. The condition's lock guards both: the latest
+        # result, and the list a RunInference goal is collecting samples into.
+        self._analysed = threading.Condition()
+        self._latest: AnalysedFrame | None = None
+        self._samples: list[Sample] | None = None
+
+        self._stop = threading.Event()
+        self._loop: threading.Thread | None = None
 
         self._active = False
         self.action_server = ActionServer(
@@ -206,10 +220,7 @@ class InferenceNode(LifecycleNode):
             callback_group=self.cb_group,
         )
 
-        # The centring loop wants the geometry many times over and none of the
-        # model outputs, so the detector is reachable on its own. A service and
-        # not an action: one pass over one frame, nothing to report on the way
-        # and nothing worth cancelling.
+        # Only reads the loop's latest result: nothing to report, nothing to cancel.
         self.detect_service = self.create_service(
             DetectFace,
             f"{self.NODE_NAME}/detect_face",
@@ -218,6 +229,12 @@ class InferenceNode(LifecycleNode):
         )
 
         self.logger.info("Unconfigured - configure to load the models, then activate")
+
+    def _int(self, name: str) -> int:
+        return self.get_parameter(name).get_parameter_value().integer_value
+
+    def _double(self, name: str) -> float:
+        return self.get_parameter(name).get_parameter_value().double_value
 
     # ============= LIFECYCLE =============
 
@@ -231,39 +248,43 @@ class InferenceNode(LifecycleNode):
         return TransitionCallbackReturn.SUCCESS
 
     def on_activate(self, state: State) -> TransitionCallbackReturn:
+        self._stop.clear()
+        self._loop = threading.Thread(target=self._perception_loop, daemon=True)
+        self._loop.start()
         self._active = True
         self.logger.info(
-            f"Active - streaming from {self.image_topic}, accepting inference goals"
+            f"Active - analysing {self.image_topic}, accepting inference goals"
         )
-
-        preview_hz = self.get_parameter("preview_hz").get_parameter_value().double_value
-        if preview_hz > 0:
-            self._preview_timer = self.create_timer(
-                1.0 / preview_hz,
-                self.preview_cb,
-                callback_group=MutuallyExclusiveCallbackGroup(),
-            )
-            self.logger.info(
-                f"Preview at {preview_hz} Hz on /{self.NODE_NAME}/scene_image "
-                f"and /{self.NODE_NAME}/debug_image"
-            )
         return super().on_activate(state)
 
     def on_deactivate(self, state: State) -> TransitionCallbackReturn:
-        self._active = False
-        if self._preview_timer is not None:
-            self.destroy_timer(self._preview_timer)
-            self._preview_timer = None
+        self._stop_loop()
         return super().on_deactivate(state)
 
     def on_cleanup(self, state: State) -> TransitionCallbackReturn:
-        self._active = False
+        self._stop_loop()
         self._models = None
         return TransitionCallbackReturn.SUCCESS
 
     def on_shutdown(self, state: State) -> TransitionCallbackReturn:
-        self._active = False
+        self._stop_loop()
         return TransitionCallbackReturn.SUCCESS
+
+    def destroy_node(self):
+        # The loop publishes; it has to be gone before the node's publishers are.
+        self._stop_loop()
+        super().destroy_node()
+
+    def _stop_loop(self):
+        self._active = False
+        self._stop.set()
+        with self._frame_arrived:
+            self._frame_arrived.notify_all()
+        if self._loop is not None:
+            self._loop.join()
+            self._loop = None
+        with self._analysed:
+            self._latest = None
 
     def _load_models(self):
         for label, path in (
@@ -299,8 +320,81 @@ class InferenceNode(LifecycleNode):
 
         self._models = Models(detector, mivolo, resemotenet)
 
-    def image_callback(self, msg: Image):
-        self._latest_frame = msg
+    def image_callback(self, msg: CompressedImage):
+        with self._frame_arrived:
+            self._frame = msg
+            self._frame_arrived.notify()
+
+    # ============= LOOP =============
+
+    def _perception_loop(self):
+        """The only code that runs the models: newest frame in, result out."""
+        try:
+            self._analyse_frames()
+        except Exception:
+            # Ctrl+C shuts ROS down under a running loop; only complain otherwise.
+            if self.context.ok():
+                raise
+
+    def _analyse_frames(self):
+        done = None
+        while not self._stop.is_set():
+            with self._frame_arrived:
+                self._frame_arrived.wait_for(
+                    lambda last=done: self._stop.is_set() or self._frame is not last,
+                    timeout=0.5,
+                )
+                frame = self._frame
+            if self._stop.is_set() or frame is None or frame is done:
+                continue
+            done = frame
+
+            img = cv2.imdecode(np.frombuffer(frame.data, np.uint8), cv2.IMREAD_COLOR)
+            if img is None:
+                self.logger.warning(
+                    f"Could not decode a frame from {self.image_topic}",
+                    throttle_duration_sec=5.0,
+                )
+                continue
+
+            collecting = self._samples is not None
+            watching_debug = self.debug_publisher.get_subscription_count() > 0
+            try:
+                analysis = self._analyse(img, full=collecting or watching_debug)
+            except Exception as e:
+                # One bad frame, or a GPU hiccup: the next frame gets its chance.
+                self.logger.error(f"Analysis failed: {e}", throttle_duration_sec=5.0)
+                continue
+
+            self._publish_images(img, analysis, frame.header)
+
+            sample = self._sample(analysis) if collecting else None
+            height, width = img.shape[:2]
+            with self._analysed:
+                self._latest = AnalysedFrame(
+                    Time.from_msg(frame.header.stamp), width, height, analysis
+                )
+                if sample is not None and self._samples is not None:
+                    self._samples.append(sample)
+                self._analysed.notify_all()
+
+    def _sample(self, analysis) -> Sample | None:
+        """The models' answer for the visitor's face, if this frame has one."""
+        visitor = analysis.visitor
+        if visitor.face is None or analysis.emotion_probabilities is None:
+            return None
+        idx = analysis.face_inds[visitor.face]
+        age = analysis.detections.ages[idx]
+        gender = analysis.detections.genders[idx]
+        score = analysis.detections.gender_scores[idx]
+        if age is None or gender is None or score is None:
+            return None
+        return Sample(
+            age=age,
+            male_probability=male_probability(gender, score),
+            emotion_probabilities=analysis.emotion_probabilities,
+            face_bbox=analysis.faces[visitor.face],
+        )
 
     # ============= ACTION =============
 
@@ -311,49 +405,77 @@ class InferenceNode(LifecycleNode):
         return GoalResponse.ACCEPT
 
     def execute_cb(self, goal_handle: ServerGoalHandle) -> RunInference.Result:
+        """Collects the visitor's face from several frames and averages them."""
         result = RunInference.Result()
         feedback = RunInference.Feedback()
+        wanted = self._int("samples")
+        needed = max(1, min(self._int("min_samples"), wanted))
+        timeout = self._double("sample_timeout_s")
 
+        samples: list[Sample] = []
+        with self._analysed:
+            if self._samples is not None:
+                return self._abort(
+                    goal_handle, result, "Already analysing - one goal at a time"
+                )
+            self._samples = samples
+
+        deadline = time.monotonic() + timeout
+        reported = None
+        latest = None
         try:
-            frame, img = self._newest_image()
-        except NoImage as e:
-            return self._abort(goal_handle, result, str(e))
+            while True:
+                with self._analysed:
+                    self._analysed.wait(timeout=0.1)
+                    count = len(samples)
+                if count != reported:
+                    feedback.status = f"collecting {count}/{wanted}"
+                    goal_handle.publish_feedback(feedback)
+                    reported = count
+                if (
+                    count >= wanted
+                    or goal_handle.is_cancel_requested
+                    or time.monotonic() >= deadline
+                ):
+                    break
+        finally:
+            with self._analysed:
+                self._samples = None
+                latest = self._latest
 
-        feedback.status = "analysing"
-        goal_handle.publish_feedback(feedback)
-        with self._model_lock:
-            analysis = self._analyse(img, full=True)
-        self._publish_images(img, analysis, frame.header)
+        if goal_handle.is_cancel_requested:
+            goal_handle.canceled()
+            result.success = False
+            result.message = "Cancelled"
+            return result
 
-        visitor = analysis.visitor
-        if visitor.person is None:
-            return self._abort(goal_handle, result, self._nobody_message(analysis))
-        if visitor.face is None:
+        if len(samples) < needed:
+            reason = ""
+            if latest is not None:
+                if latest.analysis.visitor.person is None:
+                    reason = f" - {self._nobody_message(latest.analysis)}"
+                elif latest.analysis.visitor.face is None:
+                    reason = " - the visitor's face is not in view"
             return self._abort(
-                goal_handle, result, "The visitor's face is not in the frame"
+                goal_handle,
+                result,
+                f"Only {len(samples)} of {needed} frames with the visitor's face "
+                f"within {timeout:.1f} s{reason}",
             )
-        idx = analysis.face_inds[visitor.face]
-        if (
-            analysis.detections.ages[idx] is None
-            or visitor.face not in analysis.emotions
-        ):
-            return self._abort(
-                goal_handle, result, "The models gave no answer for the visitor's face"
-            )
-        if visitor.ambiguous:
+        if latest is not None and latest.analysis.visitor.ambiguous:
             self.logger.warning(
                 "Two people are nearly the same width - this may be the wrong person"
             )
 
-        emotion, emotion_confidence = analysis.emotions[visitor.face]
-        height, width = img.shape[:2]
+        averaged = average(samples, self.EMOTIONS)
+        image_size = (latest.width, latest.height) if latest is not None else (0, 0)
         result.attributes = build_face_attributes(
-            age=analysis.detections.ages[idx],
-            gender=analysis.detections.genders[idx],
-            emotion=emotion,
-            emotion_confidence=emotion_confidence,
-            bbox=analysis.faces[visitor.face],
-            image_size=(width, height),
+            age=averaged.age,
+            gender=averaged.gender,
+            emotion=averaged.emotion,
+            emotion_confidence=averaged.emotion_confidence,
+            bbox=averaged.face_bbox,
+            image_size=image_size,
         )
 
         goal_handle.succeed()
@@ -361,6 +483,7 @@ class InferenceNode(LifecycleNode):
         result.message = (
             f"age {result.attributes.age}, {result.attributes.gender}, "
             f"{result.attributes.emotion} ({result.attributes.emotion_confidence:.3f})"
+            f" from {len(samples)} frames"
         )
         self.logger.info(result.message)
         return result
@@ -375,7 +498,7 @@ class InferenceNode(LifecycleNode):
     # ============= SERVICE =============
 
     def detect_cb(self, request, response) -> DetectFace.Response:
-        """Where the visitor is, without the models that say anything about them.
+        """Where the visitor is, from the loop's latest result.
 
         Quiet on the happy path: the centring loop calls this over and over.
         """
@@ -385,27 +508,24 @@ class InferenceNode(LifecycleNode):
             return response
 
         try:
-            frame, img = self._newest_image(request.not_before)
+            frame = self._analysed_after(request.not_before)
         except NoImage as e:
             response.success = False
             response.message = str(e)
             return response
 
-        with self._model_lock:
-            analysis = self._analyse(img, full=False)
-        self._publish_images(img, analysis, frame.header)
-
+        analysis = frame.analysis
         visitor = analysis.visitor
         if visitor.person is None:
             response.success = False
             response.message = self._nobody_message(analysis)
             return response
 
-        height, width = img.shape[:2]
+        size = (frame.width, frame.height)
         person = analysis.persons[visitor.person]
-        response.person_bbox = build_region_of_interest(person, (width, height))
-        response.image_width = width
-        response.image_height = height
+        response.person_bbox = build_region_of_interest(person, size)
+        response.image_width = frame.width
+        response.image_height = frame.height
         response.success = True
 
         if visitor.face is None:
@@ -415,7 +535,7 @@ class InferenceNode(LifecycleNode):
             return response
 
         response.face_bbox = build_region_of_interest(
-            analysis.faces[visitor.face], (width, height)
+            analysis.faces[visitor.face], size
         )
         roi = response.face_bbox
         response.message = (
@@ -423,63 +543,41 @@ class InferenceNode(LifecycleNode):
         )
         return response
 
-    # ============= PREVIEW =============
+    def _analysed_after(self, not_before) -> AnalysedFrame:
+        """The loop's latest result, waiting for a frame taken at or after `not_before`.
 
-    def preview_cb(self):
-        """Keeps both images live between requests; attributes only for debug_image."""
-        watching_debug = self.debug_publisher.get_subscription_count() > 0
-        if not watching_debug and self.scene_publisher.get_subscription_count() == 0:
-            return
-        try:
-            frame, img = self._newest_image()
-        except NoImage:
-            return
-        # A real request holding the models goes first; this frame is just skipped.
-        if not self._model_lock.acquire(blocking=False):
-            return
-        try:
-            analysis = self._analyse(img, full=watching_debug)
-        finally:
-            self._model_lock.release()
-        self._publish_images(img, analysis, frame.header)
+        A zero `not_before` takes whatever was analysed last.
+        """
+        timeout = self._double("fresh_frame_timeout_s")
+        wanted = (
+            Time.from_msg(not_before)
+            if (not_before.sec or not_before.nanosec)
+            else None
+        )
+
+        def fresh_enough():
+            latest = self._latest
+            return latest is not None and (wanted is None or latest.stamp >= wanted)
+
+        with self._analysed:
+            ready = self._analysed.wait_for(fresh_enough, timeout=timeout)
+            latest = self._latest
+        if latest is None:
+            raise NoImage(
+                f"No frame analysed from {self.image_topic} - is the camera running?"
+            )
+        if not ready:
+            raise NoImage(
+                f"No frame taken after not_before analysed within {timeout:.1f} s"
+            )
+        return latest
 
     # ============= ANALYSIS =============
 
-    def _newest_image(self, not_before=None) -> tuple[Image, np.ndarray]:
-        """The newest frame and the same as a BGR array; NoImage when there is none.
-
-        With a non-zero `not_before`, waits for a frame taken at or after it.
-        """
-        if not_before is not None and (not_before.sec or not_before.nanosec):
-            self._wait_for_frame_after(Time.from_msg(not_before))
-        frame = self._latest_frame
-        if frame is None:
-            raise NoImage(
-                f"No frame received on {self.image_topic} yet - is the camera driver running?"
-            )
-        try:
-            return frame, self.bridge.imgmsg_to_cv2(frame, desired_encoding="bgr8")
-        except Exception as e:
-            raise NoImage(f"Error converting image: {e}") from e
-
-    def _wait_for_frame_after(self, not_before: Time):
-        timeout = (
-            self.get_parameter("fresh_frame_timeout_s")
-            .get_parameter_value()
-            .double_value
-        )
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            frame = self._latest_frame
-            if frame is not None and Time.from_msg(frame.header.stamp) >= not_before:
-                return
-            time.sleep(0.01)
-        raise NoImage(f"No frame taken after not_before within {timeout:.1f} s")
-
     def _analyse(self, img, full):
-        """Detector over one frame; a full pass adds age, gender and emotion per face.
+        """Detector over one frame; a full pass adds age, gender and emotion.
 
-        The caller holds the model lock.
+        Called from the loop only; emotion for the visitor's face alone.
         """
         models = self._models
         if models is None:
@@ -517,14 +615,14 @@ class InferenceNode(LifecycleNode):
             axis_falloff,
         )
 
-        emotions = {}
-        if full and face_inds:
+        emotion_probabilities = None
+        if full and visitor.face is not None:
             models.mivolo.predict(img, detections)
-            for k, (x1, y1, x2, y2) in enumerate(faces):
-                if x2 > x1 and y2 > y1:
-                    emotions[k] = self._predict_emotion(
-                        models.resemotenet, img[y1:y2, x1:x2]
-                    )
+            x1, y1, x2, y2 = faces[visitor.face]
+            if x2 > x1 and y2 > y1:
+                emotion_probabilities = self._predict_emotion(
+                    models.resemotenet, img[y1:y2, x1:x2]
+                )
 
         return FrameAnalysis(
             persons,
@@ -533,7 +631,7 @@ class InferenceNode(LifecycleNode):
             face_inds,
             visitor,
             detections,
-            emotions,
+            emotion_probabilities,
             axis_x,
             axis_falloff,
         )
@@ -562,9 +660,7 @@ class InferenceNode(LifecycleNode):
         """Both views of one analysis, each only if someone is watching."""
         if self.scene_publisher.get_subscription_count() > 0:
             scene = draw_scene(img, analysis.persons, analysis.faces, analysis.visitor)
-            msg = self.bridge.cv2_to_imgmsg(scene, encoding="bgr8")
-            msg.header = header
-            self.scene_publisher.publish(msg)
+            self._publish_jpeg(self.scene_publisher, scene, header)
         if self.debug_publisher.get_subscription_count() == 0:
             return
 
@@ -580,9 +676,10 @@ class InferenceNode(LifecycleNode):
                         f" {analysis.detections.ages[idx]:.0f}"
                         f" {analysis.detections.genders[idx]}"
                     )
-                if face in analysis.emotions:
-                    emotion, confidence = analysis.emotions[face]
-                    text += f" {emotion} {confidence:.2f}"
+                probabilities = analysis.emotion_probabilities
+                if probabilities is not None:
+                    best = int(np.argmax(probabilities))
+                    text += f" {self.EMOTIONS[best]} {probabilities[best]:.2f}"
             labels.append(text)
 
         status = f"{len(analysis.persons)} person(s)"
@@ -594,6 +691,8 @@ class InferenceNode(LifecycleNode):
                 status += " - visitor's face not in view"
             if visitor.ambiguous:
                 status += " - AMBIGUOUS"
+        if self._samples is not None:
+            status += " - COLLECTING"
 
         annotated = draw_debug(
             img,
@@ -605,9 +704,19 @@ class InferenceNode(LifecycleNode):
             analysis.axis_x,
             analysis.axis_falloff,
         )
-        msg = self.bridge.cv2_to_imgmsg(annotated, encoding="bgr8")
+        self._publish_jpeg(self.debug_publisher, annotated, header)
+
+    def _publish_jpeg(self, publisher, image, header):
+        ok, jpeg = cv2.imencode(
+            ".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, self._int("jpeg_quality")]
+        )
+        if not ok:
+            return
+        msg = CompressedImage()
         msg.header = header
-        self.debug_publisher.publish(msg)
+        msg.format = "jpeg"
+        msg.data.frombytes(jpeg.tobytes())
+        publisher.publish(msg)
 
     # Class order of our affectnet7_model.pth, measured: 43.6% on balanced AffectNet
     # val, upstream's order 11.1%. The benchmark is in git history before b4b73bd.
@@ -621,8 +730,8 @@ class InferenceNode(LifecycleNode):
         "anger",
     )
 
-    def _predict_emotion(self, resemotenet: ResEmoteNet, face_roi):
-        """Returns (label, confidence) for the face crop."""
+    def _predict_emotion(self, resemotenet: ResEmoteNet, face_roi) -> tuple[float, ...]:
+        """One probability per label in EMOTIONS for the face crop."""
         transform = transforms.Compose(
             [
                 transforms.Resize((64, 64)),
@@ -644,9 +753,7 @@ class InferenceNode(LifecycleNode):
             outputs = resemotenet(img_tensor)
             probabilities = F.softmax(outputs, dim=1)
 
-        scores = probabilities.cpu().numpy().flatten()
-        max_index = int(np.argmax(scores))
-        return self.EMOTIONS[max_index], float(scores[max_index])
+        return tuple(float(p) for p in probabilities.cpu().numpy().flatten())
 
 
 def main(args=None):
@@ -655,7 +762,8 @@ def main(args=None):
     executor = None
     try:
         node = InferenceNode()
-        # Enough threads that a long goal and the preview never starve the camera.
+        # Goals and DetectFace calls wait on the loop, each on a thread of its own,
+        # and the camera callback must still get one.
         executor = MultiThreadedExecutor(num_threads=4)
         executor.add_node(node)
         executor.spin()

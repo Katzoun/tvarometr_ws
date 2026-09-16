@@ -1,4 +1,4 @@
-# V4L2 controls applied before usb_cam starts, top to bottom.
+# V4L2 controls applied before the camera node starts, top to bottom.
 # Names are the camera's own: v4l2-ctl -d /dev/video0 --list-ctrls-menus
 
 # Mains in Europe; stops fluorescent lights from banding.

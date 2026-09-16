@@ -80,8 +80,8 @@ bez něj přestaví i orchestrátor a shodí ti otevřený devcontainer.
 
 ```bash
 ros2 launch tvarometr_inference inference.launch.py
-ros2 run rqt_image_view rqt_image_view /inference_node/debug_image   # lidé, obličeje, popisky, koho vybral
-ros2 run rqt_image_view rqt_image_view /inference_node/scene_image   # co ukáže televize
+ros2 run rqt_image_view rqt_image_view /inference_node/debug_image/compressed   # lidé, obličeje, popisky, koho vybral
+ros2 run rqt_image_view rqt_image_view /inference_node/scene_image/compressed   # co ukáže televize
 ros2 lifecycle set /inference_node configure   # načte váhy; ve stromu to udělá strom sám
 ros2 lifecycle set /inference_node activate
 ros2 action send_goal /inference_node/run_inference tvarometr_interfaces/action/RunInference {}
@@ -93,8 +93,10 @@ v `src/tvarometr_inference/config/`, po úpravě restartuj launch:
 - `inference.yaml`: zařízení, složka s vahami, topic kamery a výběr návštěvníka:
   `min_person_width_px`, svislice nad značkou na zemi `axis_x` a `axis_falloff`.
   Za běhu je měníš přes `ros2 param set /inference_node axis_x 0.45` (vždy s
-  desetinnou tečkou) a v debug obraze hned vidíš, kde svislice je.
-- `usb_cam.yaml`: rozlišení a fps
+  desetinnou tečkou) a v debug obraze hned vidíš, kde svislice je. Dál kolik
+  snímků `RunInference` průměruje (`samples`, `min_samples`, `sample_timeout_s`).
+- `camera.yaml`: rozlišení a fps, režimy MJPG vypíše
+  `v4l2-ctl -d /dev/video0 --list-formats-ext`
 - `camera_controls.yaml`: expozice, ostření, vyvážení bílé (názvy podle
   `v4l2-ctl -d /dev/video0 --list-ctrls-menus`)
 

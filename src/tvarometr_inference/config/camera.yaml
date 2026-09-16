@@ -1,0 +1,12 @@
+# Image format only. Exposure, focus and the rest are in camera_controls.yaml.
+/**:
+  ros__parameters:
+    video_device: "/dev/video0"
+
+    # MJPG modes: `v4l2-ctl -d /dev/video0 --list-formats-ext`. 30 fps still allows
+    # a 33 ms exposure, and the GPU cannot use more frames than that anyway.
+    image_width: 1920
+    image_height: 1080
+    framerate: 30.0
+
+    frame_id: "camera"

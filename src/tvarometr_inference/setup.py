@@ -24,7 +24,8 @@ setup(
     extras_require={"test": ["pytest"]},
     entry_points={
         "console_scripts": [
-            "inference_node_exec = tvarometr_inference.inference_node:main"
+            "camera_node_exec = tvarometr_inference.camera_node:main",
+            "inference_node_exec = tvarometr_inference.inference_node:main",
         ]
     },
 )

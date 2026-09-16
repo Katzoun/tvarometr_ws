@@ -1,4 +1,4 @@
-"""The webcam alone: set its V4L2 controls, then stream it on /image_raw.
+"""The webcam alone: set its V4L2 controls, then stream /image_raw/compressed.
 
 Run it by itself to tune the camera; inference.launch.py includes it.
 """
@@ -43,9 +43,9 @@ def apply_controls(context):
 
     actions.append(
         Node(
-            package="usb_cam",
-            executable="usb_cam_node_exe",
-            name="usb_cam",
+            package="tvarometr_inference",
+            executable="camera_node_exec",
+            name="camera",
             output="screen",
             parameters=[camera_config],
             emulate_tty=True,
@@ -63,13 +63,13 @@ def generate_launch_description():
         [
             DeclareLaunchArgument(
                 "camera_config",
-                default_value=os.path.join(config_dir, "usb_cam.yaml"),
-                description="usb_cam parameters: device, resolution, framerate",
+                default_value=os.path.join(config_dir, "camera.yaml"),
+                description="Camera parameters: device, resolution, framerate",
             ),
             DeclareLaunchArgument(
                 "camera_controls",
                 default_value=os.path.join(config_dir, "camera_controls.yaml"),
-                description="V4L2 controls set before usb_cam starts: exposure, focus, ...",
+                description="V4L2 controls set before the camera starts: exposure, focus",
             ),
             OpaqueFunction(function=apply_controls),
         ]
