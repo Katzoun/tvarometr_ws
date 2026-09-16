@@ -1,6 +1,4 @@
-// Behaviour tree development. A thin wrapper around the `orchestrator` service
-// in docker-compose.dev.yml, so the editor and the CLI land in the same
-// container.
+// Behaviour tree development, on the `orchestrator` service of docker-compose.dev.yml.
 {
     "name": "orchestrator",
 
@@ -14,10 +12,9 @@
     // Closing the window must not stop inference in another one.
     "shutdownAction": "none",
 
-    // The image carries dependencies only, so build the packages once on create.
-    // Packages, output paths and cmake flags come from
-    // docker/colcon-defaults-orchestrator.yaml.
-    "postCreateCommand": "bash -c 'source /ros-env.sh && colcon build --symlink-install'",
+    // The image has dependencies only; colcon-defaults-orchestrator.yaml says what to build.
+    // Capped, or the C++ build runs the machine out of RAM.
+    "postCreateCommand": "bash -c 'source /ros-env.sh && MAKEFLAGS=-j2 colcon build --symlink-install --parallel-workers 1'",
 
     "customizations": {
         "vscode": {

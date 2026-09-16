@@ -13,11 +13,7 @@
 namespace tvarometr_orchestrator
 {
 
-/// Stands in for a step that is not written yet.
-///
-/// Reports RUNNING for duration_ms and then whatever `succeed` says, which is
-/// what makes the failure branches of the tree testable before anything real
-/// can fail.
+/// Stands in for an unwritten step: RUNNING for duration_ms, then `succeed`.
 class MockAction : public BT::StatefulActionNode
 {
 public:

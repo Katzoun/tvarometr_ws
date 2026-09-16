@@ -13,11 +13,7 @@
 namespace tvarometr_orchestrator
 {
 
-/// Puts made-up attributes on the blackboard, the way RunInference would.
-///
-/// Same output port and same message type as the real node, so nothing
-/// downstream can tell the difference. Swapping the two is renaming one
-/// element in the tree file.
+/// Puts made-up attributes on the same port RunInference would.
 class MockInference : public BT::SyncActionNode
 {
 public:

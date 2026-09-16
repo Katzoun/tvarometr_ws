@@ -1,17 +1,6 @@
 """Turns a face analysis into the paths the robot puts on the whiteboard.
 
-Splitting this out of the master node means the geometry can be produced and
-looked at without a robot, a camera or the state machine - hand it a
-FaceAttributes message and you get the paths back.
-
-The Czech values are decided here: FaceAttributes carries the models' own
-English labels, and this is where they become words. The fixed column of
-labels beside them belongs to the generator, which has to know their width to
-work out where the value column starts.
-
-Not a managed node, unlike the inference node and the driver. There is nothing
-to acquire or release here - no weights, no session, no device - so a lifecycle
-would be five callbacks guarding a boolean that guards itself.
+The Czech wording is decided here. A plain node: it holds nothing to acquire.
 """
 
 import rclpy
@@ -45,16 +34,12 @@ class TrajectoryNode(Node):
         self.declare_parameter("letter_spacing", 10.0)
         self.declare_parameter("space_factor", 1.3)
         self.declare_parameter("line_spacing", 1.5)
-        # How wide the value column is, and how much of the board the eraser
-        # covers in one pass. Both decide where the sweep runs, so a value that
-        # is wrong here is a value the robot wipes text over.
+        # Both decide where the eraser sweeps, so a wrong value wipes over text.
         self.declare_parameter("values_width", 600.0)
         self.declare_parameter("eraser_width", 120.0)
         self.declare_parameter("label_gap", 10.0)
 
-        # The pen orientation every point is written with. Default is the
-        # quaternion the master node has always sent - ABB [0,1,0,0] in w,x,y,z,
-        # which is x,y,z,w = 1,0,0,0 the ROS way round.
+        # ABB [0,1,0,0] in w,x,y,z, which is x,y,z,w = 1,0,0,0 in ROS order.
         self.declare_parameter("pen_orientation", [1.0, 0.0, 0.0, 0.0])
 
         self.service = self.create_service(

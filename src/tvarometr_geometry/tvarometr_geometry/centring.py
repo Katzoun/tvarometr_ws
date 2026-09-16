@@ -1,11 +1,7 @@
 """Where the camera goes next to put the visitor's face at the target height.
 
-Pixels become metres through the one thing whose real size we know: a face is
-about `face_height_m` tall, so its height in the frame is the scale.
-
-With no face in view there is nothing to scale, so the camera feels its way a
-step at a time: towards the top of the visitor's body box, which is roughly
-where their head is, or blindly downwards when nobody is in the frame at all.
+A face is about `face_height_m` tall, which turns pixels into metres. With no
+face in view the camera steps blindly: towards the top of the body box, or down.
 """
 
 from dataclasses import dataclass
@@ -38,9 +34,7 @@ class Centring:
     def blind_step(self, z, person_top_y, image_height):
         """One step towards the top of the visitor's body box, where their head is.
 
-        For a visitor whose face is not in view. None when the top of them is
-        already where a face belongs - their head is in the frame and turned
-        away, so moving would not bring it back.
+        None when it is already where a face belongs: the head is turned away.
         """
         error_px = person_top_y - self.target_y * image_height
         if abs(error_px) <= self.tolerance * image_height:

@@ -57,12 +57,9 @@ def _numbers(value, size):
 
 
 def trajectories_to_svg(data: dict, *, grid_step=50.0, show_travel=False) -> str:
-    """Render XY centerlines; Z selects contact/travel, not a 3D projection.
+    """Render XY centerlines in mm; Z only tells contact from travel.
 
-    Physical SVG dimensions in mm match the viewBox dimensions. The Y axis
-    is inverted for SVG so text retains the generator's upward-positive Y.
-    Eraser footprint size is absent from JSON; only its centerline is shown.
-    units="m" is converted to mm; legacy JSON without units uses mm.
+    SVG Y is flipped so text reads upright; JSON without units is taken as mm.
     """
     if not math.isfinite(grid_step) or grid_step <= 0:
         raise ValueError("grid_step must be finite and positive")

@@ -1,8 +1,6 @@
-"""The bounding box changes shape on the way into the message.
+"""The detector's corners become a RegionOfInterest, clamped into the frame.
 
-A detector reports two corners, RegionOfInterest holds one corner and a size,
-and it counts in unsigned pixels - so a corner that falls outside the frame has
-to be brought back in before it wraps into millions.
+RegionOfInterest counts in unsigned pixels, so a corner outside would wrap.
 """
 
 from tvarometr_inference.attributes import build_face_attributes

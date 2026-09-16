@@ -16,10 +16,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     # /root/.config isn't writable here and ultralytics would relocate anyway
     YOLO_CONFIG_DIR=/tmp/Ultralytics
 
-# Canonical's own archive answers at about a megabyte a second from here, and
-# security.ubuntu.com does not answer at all; the ROS install below pulls a
-# few hundred megabytes through both. A country mirror carries jammy-security
-# too and saturates the line instead. Swap it if you are not in Europe.
+# Czech mirror: Canonical's archive crawls from here and security.ubuntu.com
+# does not answer. Swap it outside Europe.
 RUN sed -i \
     -e 's|http://archive.ubuntu.com|http://cz.archive.ubuntu.com|g' \
     -e 's|http://security.ubuntu.com|http://cz.archive.ubuntu.com|g' \
@@ -52,11 +50,12 @@ RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
         git-lfs \
         # opencv runtime libs
         libgl1 libglib2.0-0 libgomp1 \
+        # v4l2-ctl, which camera.launch.py uses to set exposure and focus
+        v4l-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Python dependencies -------------------------------------------------
-# Upgrade together: apt ships packaging 21.3, too old for the setuptools that
-# torch pulls in, and the mismatch breaks colcon with canonicalize_version().
+# apt's packaging 21.3 is too old for torch's setuptools and breaks colcon.
 RUN pip3 install --no-cache-dir --upgrade pip setuptools packaging
 
 COPY docker/requirements-inference.txt /tmp/requirements-inference.txt

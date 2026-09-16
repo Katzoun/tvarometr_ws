@@ -19,21 +19,15 @@ BT::PortsList ExecutePath::providedPorts()
         "motion_command", "MoveL", "Which RAPID routine drives it: MoveL or MoveJ"),
       // Text, because that is what the goal carries. RAPID clamps it to 5-1000.
       BT::InputPort<std::string>("speed", "100", "TCP speed in mm/s"),
-      // Names of data on the controller. Empty leaves the choice to RAPID -
-      // whichever tool it last used, and wobj0, the robot's base. The pen and
-      // the eraser share one flange, so which of them touches the board is only
-      // ever this tool name.
+      // Empty leaves it to RAPID: the last tool used, and wobj0.
       BT::InputPort<std::string>("tool", "", "tooldata name, e.g. tooltuzka"),
       BT::InputPort<std::string>("wobj", "", "wobjdata name, e.g. wobjtabletop")});
 }
 
 BT::NodeStatus ExecutePath::tick()
 {
-  // Every ExecutePath shares one client, and the driver's feedback topic carries
-  // every goal on this action - the centring node's moves too. The library reads
-  // only a message or two per tick, so a backlog of those could keep the
-  // driver's answer to a new goal unread past the send timeout, while the robot
-  // was already drawing. Emptying the queue first keeps the answer in reach.
+  // The shared client also gets feedback for other clients' goals. Read it all,
+  // or the answer to a new goal can wait behind it past the send timeout.
   if (client_instance_) {
     std::unique_lock<std::mutex> lock(getMutex());
     client_instance_->callback_executor.spin_all(std::chrono::milliseconds(20));

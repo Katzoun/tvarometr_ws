@@ -1,6 +1,7 @@
 #ifndef TVAROMETR_ORCHESTRATOR__RUN_INFERENCE_HPP_
 #define TVAROMETR_ORCHESTRATOR__RUN_INFERENCE_HPP_
 
+#include <optional>
 #include <string>
 
 #include "behaviortree_ros2/bt_action_node.hpp"
@@ -9,11 +10,7 @@
 namespace tvarometr_orchestrator
 {
 
-/// Asks the inference node to run the models over its newest camera frame.
-///
-/// The action carries no goal fields - the node always works on whatever it
-/// last received - so everything here is about the answer, which lands on the
-/// blackboard for GenerateTrajectories to pick up.
+/// Asks the inference node to analyse the visitor; the answer goes to `attributes`.
 class RunInference : public BT::RosActionNode<tvarometr_interfaces::action::RunInference>
 {
 public:
@@ -29,7 +26,10 @@ public:
 
   BT::NodeStatus onResultReceived(const WrappedResult & result) override;
 
-  BT::NodeStatus onFailure(BT::ActionNodeErrorCode error) override;
+  // The overload with the result, because an aborted goal says why in its message.
+  using BT::RosActionNode<tvarometr_interfaces::action::RunInference>::onFailure;
+  BT::NodeStatus onFailure(
+    BT::ActionNodeErrorCode error, const std::optional<WrappedResult> & result) override;
 };
 
 }  // namespace tvarometr_orchestrator

@@ -1,10 +1,6 @@
 """Text to single-line drawing trajectories, independent of ROS and the robot.
 
-Input lengths are millimetres; output coordinates are metres.
-X goes right, Y up, Z=0 touches the board.
-The first line's baseline is Y=0; subsequent lines run down the board.
-Relief SingleLine includes Czech accents, which may exceed letter_height.
-Each disconnected stroke starts and ends with the pen lifted.
+Lengths in are mm, coordinates out metres: X right, Y up, Z=0 on the board.
 """
 
 import argparse
@@ -92,19 +88,10 @@ def generate_path(
     max_segment_length: float | None = None,
     curve_tolerance: float = 0.5,
 ) -> list[tuple[float, float, float]]:
-    """Return (x, y, z) waypoints in metres; input lengths remain in mm.
+    """Return (x, y, z) waypoints in metres; input lengths are mm.
 
-    letter_height scales the font's nominal capital height (680 font units).
-    letter_spacing adds tracking to the font's own advance widths. Spaces use
-    the font's space advance multiplied by space_factor, plus letter_spacing.
-    line_spacing is baseline separation as a multiple of letter_height.
-    max_segment_length optionally limits pen-down steps (None: no length cap).
-    Straight segments use endpoints; curve_tolerance bounds the Bezier
-    approximation error in mm. Requires linear motion between waypoints.
-    NFC normalization accepts both composed and decomposed Czech characters.
-    Unsupported characters raise ValueError instead of silently losing text.
-
-    The function has no cycle state: callers choose which text to draw.
+    letter_height is the capital height, line_spacing a multiple of it, and
+    curve_tolerance the Bezier error. Unsupported characters raise ValueError.
     """
     for name, value in (
         ("letter_height", letter_height),
@@ -190,21 +177,10 @@ def generate_trajectories(
     max_segment_length: float | None = None,
     curve_tolerance: float = 0.5,
 ) -> dict:
-    """Return paths and values_bounds in metres, with units="m".
+    """Return label, value and erase paths in metres; input lengths are mm.
 
-    Input lengths remain in mm.
-
-    input_str contains exactly three lines: age, gender, mood (values only).
-    Paths share a board coordinate system and use the active tool's contact
-    plane as Z=0. This only generates geometry; it does not change tools or
-    track whether a robot has successfully drawn the labels.
-
-    First cycle: draw labels + values. Later cycles: erase, then draw values.
-    Keep layout parameters constant across cycles. The erase region depends
-    on the font bounds and values_width, never on the current text length.
-    Text outside that region is rejected. eraser_width is the effective
-    circular footprint diameter; overlapping sweeps cover the whole region.
-    label_gap is clearance between label ink and the eraser's swept footprint.
+    input_str is three lines: age, gender, mood. The erase region depends only on
+    the font and values_width; eraser_width is the footprint diameter.
     """
     values = input_str.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     if len(values) != 3:

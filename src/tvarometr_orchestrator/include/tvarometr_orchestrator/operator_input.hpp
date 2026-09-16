@@ -13,11 +13,9 @@
 namespace tvarometr_orchestrator
 {
 
-/// What the operator is asking for, as flags the keyboard thread sets.
+/// What the operator asks for, as flags the keyboard thread sets.
 ///
-/// `abort` latches: E raises it and only Q lowers it again. Leaning on S after
-/// a stop does nothing, which is the whole point - somebody has to look at the
-/// cell and say it is clear before the arm moves again.
+/// `abort` latches: E raises it, only Q lowers it, so S after a stop does nothing.
 struct OperatorInput
 {
   std::atomic<bool> start{false};
@@ -26,24 +24,13 @@ struct OperatorInput
   std::atomic<bool> abort{false};
 };
 
-/// Reads S, C, E and Q from the terminal until ROS shuts down.
+/// Reads S, C, E and Q without Enter until ROS shuts down, in its own thread.
 ///
-/// S asks for a run, C lets a paused one go on, E stops one, Q acknowledges a
-/// stop. Refusing S and C while the abort is latched happens here rather than in
-/// the tree: the tree only ever asks whether the guard is clear, and this is
-/// what keeps it that simple.
-///
-/// Takes the terminal out of line mode, so a key registers without Enter, and
-/// puts it back on the way out. Runs in its own thread because read() blocks
-/// and the tree has ticking to do.
+/// Refuses S and C while an abort is latched, so the tree only checks the guard.
 void readKeyboard(OperatorInput * input, rclcpp::Logger logger);
 
-/// Fails once E has been pressed, and keeps failing until Q acknowledges it.
-///
-/// Belongs at the top of a ReactiveSequence, which re-ticks it on every pass
-/// and halts the running step when it fails. That halt cancels a ROS action,
-/// and cancelling a motion goal does NOT stop the arm - the queue runs to its
-/// end. This is an orderly stop, not the robot's emergency stop.
+/// Fails from E until Q. At the top of a ReactiveSequence it halts the running
+/// step - an orderly stop, since the driver runs out its queue.
 class IsAbortClear : public BT::ConditionNode
 {
 public:
@@ -63,11 +50,7 @@ private:
   OperatorInput * input_;
 };
 
-/// Holds the tree until the operator presses one particular key.
-///
-/// Which key is the flag it is built with, so one class serves every pause:
-/// registered once over `start` as WaitForStart and once over `proceed` as
-/// WaitForContinue.
+/// Holds the tree until one key; registered as WaitForStart and WaitForContinue.
 class WaitForKey : public BT::StatefulActionNode
 {
 public:

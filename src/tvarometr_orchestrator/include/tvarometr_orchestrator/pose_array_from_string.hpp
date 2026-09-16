@@ -13,13 +13,9 @@
 namespace BT
 {
 
-/// x,y,z,qx,qy,qz,qw per pose - metres and a ROS quaternion - with poses
-/// separated by ';'. Spaces are ignored.
+/// x,y,z,qx,qy,qz,qw per pose in metres, poses separated by ';'.
 ///
-/// BT.CPP builds a port's string converter from whichever convertFromString it
-/// can see where the port is declared, so every node header with a PoseArray
-/// port includes this. Declared in one source file only, the other ports would
-/// silently get the library's generic version, which throws.
+/// Include it in every header with a PoseArray port, or BT.CPP uses its throwing default.
 template<>
 inline geometry_msgs::msg::PoseArray convertFromString<geometry_msgs::msg::PoseArray>(
   StringView str)

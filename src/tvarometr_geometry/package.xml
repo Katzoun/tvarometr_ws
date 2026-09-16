@@ -14,9 +14,7 @@
        driver's repository, same as for the orchestrator. -->
   <depend>robot_control_msgs</depend>
 
-  <!-- svg.path, which the trajectory node vectorises text with, is not
-       declared here: rosdep has no rule for it. It arrives by pip, from
-       docker/requirements-orchestrator.txt. -->
+  <!-- svg.path comes by pip (docker/requirements-orchestrator.txt): no rosdep rule. -->
 
   <test_depend>python3-pytest</test_depend>
 

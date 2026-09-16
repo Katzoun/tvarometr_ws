@@ -1,9 +1,7 @@
-# Moves the camera up or down until the visitor's face sits at the target height
-# in the frame. Only Z changes; X, Y and orientation stay those of photo_pose.
-# The Z limits, gain and target are parameters of the centring node.
+# Moves the camera in Z only until the visitor's face sits at the target height.
+# Limits, gain and target are parameters of the centring node.
 
-# Where the robot already stands, in wobj, metres. Every move is computed from
-# this, never from the robot's reported position.
+# Where the robot already stands, in wobj, metres; every move is computed from it.
 geometry_msgs/Pose photo_pose
 string tool
 string wobj

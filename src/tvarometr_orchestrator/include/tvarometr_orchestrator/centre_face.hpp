@@ -12,14 +12,9 @@
 namespace tvarometr_orchestrator
 {
 
-/// Has the centring node frame the visitor's face before the models look at it.
+/// Has the centring node frame the visitor's face, from the photo pose it gets.
 ///
-/// The goal carries the photo pose the robot has just driven to, because the
-/// centring node works every move out from it and never reads where the arm
-/// actually is. Only Z changes, inside that node's own limits.
-///
-/// SUCCESS also covers a scan that ran into a Z limit with the face still off
-/// target - the face is in the frame, which is what the analysis needs.
+/// SUCCESS includes a scan that hit a Z limit with the face still in view.
 class CentreFace : public BT::RosActionNode<tvarometr_interfaces::action::CentreFace>
 {
 public:

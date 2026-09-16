@@ -1,18 +1,7 @@
-"""Frames a face in the camera before the analysis pass runs.
+"""Frames the visitor's face by moving the camera in Z only.
 
-The camera rides on the flange, so moving the arm moves the view: a child's
-face sits low in the frame, and walking the camera down to it is what gets
-RunInference a picture worth analysing.
-
-Only Z moves. X, Y and the orientation stay those of the photo pose the caller
-sends, and that pose is where every step is measured from - the robot's own
-reported position is never read. Z stays between min_z and max_z whatever the
-detector says.
-
-The visitor's face is not always in view - a child the camera looks over, or a
-tall visitor it sees the chest of. The detector still reports where they stand,
-so the camera feels its way: up when their box runs off the top of the frame,
-down when it sees nobody at all.
+Every step is measured from the photo pose in the goal, never from the robot's
+reported position, and Z stays within min_z and max_z.
 """
 
 import time
@@ -37,28 +26,20 @@ class CentringNode(Node):
     def __init__(self):
         super().__init__("centring_node")
 
-        # Named rather than hard-coded: the inference node answers in the inference
-        # container and the driver in its own, and either can be remapped.
         self.declare_parameter("detect_service", "/inference_node/detect_face")
         self.declare_parameter(
             "motion_action", "/robot_controller/robot_robtarget_move"
         )
-        # How long to wait on startup before saying a peer is missing. Long
-        # enough that the usual start-everything-at-once is not reported as a
-        # fault, short enough to still be a startup message.
+        # How long to wait before reporting a missing peer at startup.
         self.declare_parameter("peer_timeout_s", 5.0)
 
-        # How high the camera may go and how low, in the goal's wobj. No default
-        # fits a cell, so these are what to set before the first run.
+        # In the goal's wobj; no default fits a cell.
         self.declare_parameter("min_z", 0.8)
         self.declare_parameter("max_z", 1.6)
-        # Where the face belongs in the frame and how far off that may be, as
-        # fractions of the image height. Slightly above the middle, so the
-        # visitor's head has room and the robot is not looking at their chin.
+        # Fractions of the image height.
         self.declare_parameter("target_y", 0.4)
         self.declare_parameter("tolerance", 0.05)
-        # How much of the error one step corrects. Below 1 so that an error in
-        # the pixels-to-metres estimate undershoots rather than oscillates.
+        # Below 1, so an error in the pixel scale undershoots instead of oscillating.
         self.declare_parameter("gain", 0.7)
         self.declare_parameter("max_step", 0.08)
         self.declare_parameter("max_steps", 15)
@@ -67,8 +48,7 @@ class CentringNode(Node):
         self.declare_parameter("face_height_m", 0.22)
         # Give up after this many detections in a row with nobody in front.
         self.declare_parameter("max_lost_detections", 3)
-        # The detector waits for a frame taken after the robot stopped, so this
-        # covers that wait too.
+        # Includes the detector's wait for a frame taken after the robot stopped.
         self.declare_parameter("detect_timeout_s", 5.0)
         # Slow: the camera is moving to look at somebody standing close by.
         self.declare_parameter("speed", "100")
@@ -82,8 +62,6 @@ class CentringNode(Node):
         self.detect_client = self.create_client(
             DetectFace, self.detect_service, callback_group=self.cb_group
         )
-        # Cartesian, because the correction is a shift of the camera and not an
-        # angle on any one axis.
         self.motion_client = ActionClient(
             self, ExecutePoseArray, self.motion_action, callback_group=self.cb_group
         )
@@ -157,8 +135,7 @@ class CentringNode(Node):
         deadline = time.monotonic() + self._double("timeout_s")
 
         z = request.photo_pose.position.z
-        # The robot is standing at the photo pose already, so any frame from now
-        # on shows the scene from where the first move will start.
+        # The robot already stands at the photo pose, so any frame from now counts.
         not_before = self.get_clock().now().to_msg()
         lost = 0
 
@@ -181,8 +158,7 @@ class CentringNode(Node):
                 continue
 
             if not answer.success:
-                # Nobody in the frame at all, so the camera is looking over
-                # everyone's head - feel downwards for a short visitor.
+                # Nobody in the frame: the camera looks over everyone, so feel downwards.
                 step, state = tuning.nudge(z, -1), "searching"
             elif answer.face_bbox.height == 0:
                 # Their face is not in view, so steer by the top of them instead.
@@ -190,8 +166,7 @@ class CentringNode(Node):
                     z, answer.person_bbox.y_offset, answer.image_height
                 )
                 if blind is None:
-                    # Their head is where a face should be and the detector still
-                    # finds none - turned away. Moving would not help.
+                    # The head is where a face belongs, yet no face: turned away.
                     lost += 1
                     if lost >= max_lost:
                         return self._failed(
@@ -243,8 +218,7 @@ class CentringNode(Node):
                         request,
                         f"Reached z {z:.3f} without the visitor's face in view",
                     )
-                # As close as the limits allow. The face is not where we wanted
-                # it, but it is in the frame, so the run carries on.
+                # As close as the limits allow; the face is in view, so the run goes on.
                 return self._succeeded(
                     goal_handle,
                     z,
@@ -304,8 +278,7 @@ class CentringNode(Node):
     def _detect(self, not_before):
         """Where the visitor is, or None when the detector does not answer.
 
-        An answer with success false means nobody is in the frame, which is
-        something the loop acts on rather than an error.
+        success false means nobody is in the frame, which the loop acts on.
         """
         request = DetectFace.Request()
         request.not_before = not_before
@@ -369,8 +342,7 @@ def main(args=None):
     executor = None
     try:
         node = CentringNode()
-        # The loop waits on a service and an action from inside a callback, so
-        # the executor needs threads to spare.
+        # The loop waits on a service and an action inside a callback.
         executor = MultiThreadedExecutor(num_threads=4)
         executor.add_node(node)
         executor.spin()

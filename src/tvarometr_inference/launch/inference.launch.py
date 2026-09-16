@@ -1,8 +1,7 @@
-"""Camera driver + inference - the GPU container half of the system.
+"""Camera and inference node, settings in config/inference.yaml.
 
-The camera comes from camera.launch.py; the inference node is managed, so it
-comes up unconfigured until configure loads the weights. Its settings live in
-config/inference.yaml."""
+The node starts unconfigured; configure loads the weights.
+"""
 
 import os
 

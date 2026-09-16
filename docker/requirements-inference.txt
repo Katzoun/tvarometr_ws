@@ -1,21 +1,12 @@
-# Python deps for the GPU inference container (camera capture + inference).
-#
-# torch/torchvision stay on cu121. Before bumping them, check that
-# torch.cuda.get_arch_list() still covers both machines we run on:
-#   RTX 3080 (deployment) = sm_86, GTX 1080 (dev) = sm_61, runs the sm_60 kernels.
-# torch >= 2.6 dropped Pascal, and it breaks at inference time rather than at
-# import - torch.cuda.is_available() still returns True on the 1080.
-#
-# The +cu121 suffix is load-bearing: a bare version pin resolves to the PyPI
-# wheel (a different CUDA build) instead of this one.
+# Python deps for the inference container.
+# torch >= 2.6 dropped Pascal (the dev GTX 1080) and fails only at inference time;
+# check torch.cuda.get_arch_list() before bumping. +cu121 picks the CUDA wheel.
 --extra-index-url https://download.pytorch.org/whl/cu121
 
 torch==2.5.1+cu121
 torchvision==0.20.1+cu121
 
-# Has to stay on 1.x: cv_bridge and the other ROS Humble python modules come
-# from apt built against numpy 1, and under numpy 2 they throw
-# "AttributeError: _ARRAY_API not found" the moment you convert an image.
+# ROS Humble's apt Python modules are built against numpy 1 (_ARRAY_API errors on 2).
 numpy<2
 opencv-python-headless
 pillow

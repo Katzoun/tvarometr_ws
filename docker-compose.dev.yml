@@ -1,12 +1,5 @@
-# Development stack. Three environments over one source tree:
-#
-#   orchestrator  the behaviour tree, CPU only - started by a plain `up -d`
-#   inference     camera and networks, wants an NVIDIA GPU  (--profile inference)
-#   driver        the ABB driver, wants a robot             (--profile robot)
-#
-# Only the first two are developed here. The driver has its own repository and
-# this builds its production image - we run the driver, we do not define its
-# environment. See README.md for the workflow.
+# Development stack over one source tree: orchestrator (plain `up -d`), inference
+# (--profile inference, GPU) and the ABB driver's production image (--profile robot).
 
 services:
   orchestrator:
@@ -80,9 +73,7 @@ services:
   driver:
     # Wants a robot, so a plain `up -d` leaves it alone.
     profiles: [robot]
-    # Built from the driver's own Dockerfile, against the source that
-    # `vcs import src < driver.repos` puts in place. Nothing about the driver's
-    # environment is described here.
+    # The driver's own Dockerfile, on the source `vcs import` put in place.
     build:
       context: ./src/abb_rws2_ros2_driver
       dockerfile: docker/prod.Dockerfile

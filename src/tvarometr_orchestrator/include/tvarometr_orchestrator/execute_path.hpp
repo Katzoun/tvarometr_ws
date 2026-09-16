@@ -12,14 +12,9 @@
 namespace tvarometr_orchestrator
 {
 
-/// Sends one cartesian path to the robot and waits until the robot has driven it.
+/// Sends one cartesian path and waits until the arm has stopped.
 ///
-/// The driver's goal ends when the arm stands still, not when the last point has
-/// been queued, so SUCCESS here means the pen has actually stopped moving.
-///
-/// Halting it - an abort from the keyboard - cancels the goal, and the driver
-/// treats that as an orderly stop: whatever is already in the RAPID queue still
-/// runs out. That is not an emergency stop and is not meant to be one.
+/// A halt cancels the goal; the driver still runs out its queue, so it is no e-stop.
 class ExecutePath : public BT::RosActionNode<robot_control_msgs::action::ExecutePoseArray>
 {
 public:
@@ -46,9 +41,7 @@ public:
     BT::ActionNodeErrorCode error, const std::optional<WrappedResult> & result) override;
 
 private:
-  // The driver reports every point it sends and every poll while it waits.
-  // Logging all of that would bury everything else, so progress is written at
-  // most every couple of seconds.
+  // Progress is logged at most every couple of seconds.
   rclcpp::Time last_progress_log_;
 };
 

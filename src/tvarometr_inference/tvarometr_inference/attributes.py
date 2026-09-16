@@ -1,8 +1,6 @@
 """Turning what the models return into a FaceAttributes message.
 
-Kept out of the node so it can be tested on its own: importing inference_node
-pulls in torch, the vendored MiVOLO and half a gigabyte of weights, while this
-is plain arithmetic over numbers the models already produced.
+Kept apart from the node so it tests without torch or the weights.
 """
 
 from sensor_msgs.msg import RegionOfInterest
@@ -11,11 +9,9 @@ from tvarometr_interfaces.msg import FaceAttributes
 
 
 def build_region_of_interest(bbox, image_size):
-    """The detector's two corners as the one corner and a size ROS speaks.
+    """(x1, y1, x2, y2) pixels as a RegionOfInterest, clamped to the frame.
 
-    `bbox` is (x1, y1, x2, y2) in pixels and `image_size` the (width, height)
-    of the frame it was found in. Shared with DetectFace, which answers with
-    this geometry and nothing else.
+    `image_size` is (width, height); DetectFace answers with this too.
     """
     width, height = (int(v) for v in image_size)
     x1, y1, x2, y2 = (round(float(v)) for v in bbox)
@@ -33,12 +29,7 @@ def build_region_of_interest(bbox, image_size):
 
 
 def build_face_attributes(age, gender, emotion, emotion_confidence, bbox, image_size):
-    """One face analysis as the message the rest of the system speaks.
-
-    `bbox` is the detector's (x1, y1, x2, y2) in pixels and `image_size` the
-    (width, height) of the frame it was found in. Labels are passed through as
-    the models wrote them - the Czech wording happens in the trajectory node.
-    """
+    """One face analysis as FaceAttributes; labels stay the models' English."""
     width, height = (int(v) for v in image_size)
 
     attributes = FaceAttributes()

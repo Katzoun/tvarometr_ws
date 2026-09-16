@@ -1,12 +1,7 @@
-"""Which of the people in the frame is the visitor, and whether we see their face.
+"""Which person in the frame is the visitor, and whether their face is in view.
 
-The visitor stands closest to the camera, so theirs is the widest person box.
-Width and not height, because somebody standing close is cut off by the top or
-the bottom of the frame long before they are narrow - a child the camera looks
-over, or a tall visitor it sees the chest of. Standing near the axis over the
-floor mark counts too.
-
-The face only says where to look, so a visitor without one is still the visitor.
+The widest person near the floor-mark axis: somebody close is cut off at the top
+or bottom long before they are narrow. A visitor with no face in view still counts.
 """
 
 from dataclasses import dataclass
@@ -47,9 +42,8 @@ def select_visitor(
 ):
     """Pick the person with the best width times axis weight, and their face.
 
-    `persons` are (x1, y1, x2, y2); `face_of_person` maps a person's index to
-    the index of their face. People narrower than `min_width_px` are too far
-    from the camera to be the visitor, wherever they stand.
+    `face_of_person` maps a person's index to their face's; people narrower than
+    `min_width_px` never count, wherever they stand.
     """
     weights = tuple(axis_weight(b, image_width, axis_x, axis_falloff) for b in persons)
     too_far = tuple(i for i, box in enumerate(persons) if box_width(box) < min_width_px)

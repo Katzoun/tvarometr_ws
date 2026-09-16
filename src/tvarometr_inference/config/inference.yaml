@@ -1,21 +1,15 @@
-# Parameters for the inference node.
-#
-# Read once, when the node starts: edit the value, then restart the launch.
-# Change the key below if you rename the node.
+# Inference node parameters, read at start: edit, then restart the launch.
 
 inference_node:
   ros__parameters:
 
-    # cuda:0 on the machines we run on. Asking for CUDA where there is none is
-    # not fatal - the node warns and falls back to the CPU, which is slow.
+    # Without CUDA the node warns and falls back to the CPU, which is slow.
     device: cuda:0
 
-    # Where the weights live. The inference container mounts the repo's models/
-    # here; outside the container, point it at that directory instead.
+    # The inference container mounts the repo's models/ here.
     models_dir: /opt/tvarometr/models
 
-    # Each model can also be taken from somewhere else on its own, which is
-    # handy for trying a single new checkpoint. Unset, they come from models_dir.
+    # Any single model can come from elsewhere, e.g. to try a new checkpoint.
     # detector_path: /opt/tvarometr/models/yolov8x_person_face.pt
     # mivolo_path: /opt/tvarometr/models/model_imdb_cross_person_4.22_99.46.pth.tar
     # resemotenet_path: /opt/tvarometr/models/affectnet7_model.pth
@@ -23,13 +17,10 @@ inference_node:
     # The camera node's JPEGs; only the frames the node analyses get decoded.
     image_topic: /image_raw/compressed
 
-    # The visitor is the widest person near the axis - width, because somebody
-    # standing close is cut off by the top or the bottom of the frame long before
-    # they are narrow. Narrower than this, they are too far away to be the visitor.
+    # The visitor is the widest person near the axis; anyone narrower is too far.
     min_person_width_px: 300
-    # Vertical line over the floor mark, as a fraction of the image width (0.5 = centre).
-    # Somebody axis_falloff from it counts half their width; 0.0 ignores the axis.
-    # Keep the decimal point: an integer here stops the node from starting.
+    # Axis over the floor mark as a fraction of the width; axis_falloff away counts
+    # half, 0.0 ignores it. Keep the decimal points, or the node will not start.
     axis_x: 0.5
     axis_falloff: 0.25
     # Warn when the runner-up scores at least this fraction of the winner.

@@ -17,7 +17,8 @@
     // Closing the window keeps the container up, so its build survives.
     "shutdownAction": "none",
 
-    "postCreateCommand": "bash -c 'source /ros-env.sh && colcon build --symlink-install --packages-select tvarometr_interfaces tvarometr_inference'",
+    // Capped like the orchestrator's build, so both containers can build at once.
+    "postCreateCommand": "bash -c 'source /ros-env.sh && MAKEFLAGS=-j2 colcon build --symlink-install --parallel-workers 1 --packages-select tvarometr_interfaces tvarometr_inference'",
 
     "customizations": {
         "vscode": {

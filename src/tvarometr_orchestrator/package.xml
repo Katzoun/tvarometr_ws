@@ -21,9 +21,7 @@
   <depend>rclcpp</depend>
   <depend>rclcpp_action</depend>
 
-  <!-- The two interface sets the tree drives. robot_control_msgs belongs to the
-       driver's repository and arrives through `vcs import src < dependencies.repos`,
-       so that has to have run before this package builds. -->
+  <!-- robot_control_msgs comes from the driver repo via `vcs import`. -->
   <depend>robot_control_msgs</depend>
   <depend>tvarometr_interfaces</depend>
 

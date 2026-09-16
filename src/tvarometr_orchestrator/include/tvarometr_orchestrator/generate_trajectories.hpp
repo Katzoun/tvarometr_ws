@@ -11,16 +11,9 @@
 namespace tvarometr_orchestrator
 {
 
-/// Turns the analysis into the paths the robot puts on the board.
+/// Turns the attributes into the label, value and erase paths.
 ///
-/// The first node with an input port of its own: the attributes the inference
-/// left on the blackboard are what the request carries.
-///
-/// All three paths arrive together and all three go onto the blackboard, even
-/// though a given cycle draws only some of them. Which ones is the tree's
-/// decision - a clean board takes the labels, every other run erases first -
-/// and keeping that decision in the tree is what lets this node stay a
-/// function: attributes in, geometry out, nothing remembered between calls.
+/// All three go to the blackboard; which get drawn is the tree's decision.
 class GenerateTrajectories
   : public BT::RosServiceNode<tvarometr_interfaces::srv::GenerateTrajectories>
 {

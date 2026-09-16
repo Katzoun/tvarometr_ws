@@ -1,7 +1,4 @@
-// Driving and checking the managed nodes the run depends on.
-//
-// Which node either one talks to is the `service_name` port, so one registered
-// type serves the inference node and the robot driver alike.
+// Driving and checking the managed nodes; `service_name` says which one.
 
 #ifndef TVAROMETR_ORCHESTRATOR__LIFECYCLE_NODES_HPP_
 #define TVAROMETR_ORCHESTRATOR__LIFECYCLE_NODES_HPP_
@@ -15,14 +12,9 @@
 namespace tvarometr_orchestrator
 {
 
-/// Takes one managed node through one lifecycle transition.
+/// Takes one managed node through one transition, named by a word.
 ///
-/// The transition is a word rather than the number the message holds, so the
-/// tree reads as an instruction: transition="configure".
-///
-/// Configure on the inference node loads half a gigabyte of weights and the
-/// service does not answer until it is done, so this wants a timeout in minutes
-/// - the library defaults to one second. That is set where it is registered.
+/// Configuring the inference node takes minutes; the timeout is set at registration.
 class ChangeLifecycleState : public BT::RosServiceNode<lifecycle_msgs::srv::ChangeState>
 {
 public:
@@ -43,10 +35,7 @@ public:
 
 /// Succeeds while a managed node reports itself active.
 ///
-/// Despite the name this is a service call, not a cheap predicate: it returns
-/// RUNNING until the answer arrives. It belongs in a plain Sequence, once per
-/// cycle. In a reactive branch - next to IsAbortClear, say - it would send a
-/// fresh request on every tick.
+/// A service call, so once per cycle - not in a reactive branch, which re-ticks it.
 class IsNodeActive : public BT::RosServiceNode<lifecycle_msgs::srv::GetState>
 {
 public:

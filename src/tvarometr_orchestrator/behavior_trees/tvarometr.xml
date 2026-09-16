@@ -1,35 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--
-  The whole run: driver bring-up once, then one cycle per visitor.
-  MockInference is still a stand-in; set succeed="false" on a MockAction to
-  watch the branch that handles its failure.
--->
+<!-- The whole run: bring-up once, then one cycle per visitor. -->
 <root BTCPP_format="4" main_tree_to_execute="Tvarometr">
   <BehaviorTree ID="Tvarometr">
     <Sequence name="orchestrator">
 
-      <!-- Whether the fixed labels are already on the board. The process
-           assumes a clean board when it starts; the first run that gets the
-           labels on sets this, and every run after it draws only the values. -->
+      <!-- Whether the labels are on the board; a clean board is assumed at start. -->
       <Script code="board_written := false"/>
 
-      <!-- Once, before anyone can ask for a run. The robot driver and the
-           inference node are managed nodes: the driver accepts no motion goal
-           and the inference node answers no detection until they are active, so
-           both are brought up here rather than by hand from other terminals.
-           Configuring the inference node loads its weights, which takes a while.
-           The trajectory and centring nodes never belong here: they hold no
-           resource, so they are plain nodes, ready as soon as they are running.
-
-           Ask whether each node is already active, and only if it is not,
-           configure and activate it. That makes restarting this process cheap:
-           a driver that is up keeps its robot session, and an inference node
-           that is up keeps its weights on the GPU.
-
-           ForceSuccess on configure covers the node that is configured but not
-           active: configure refuses, and activate is what decides. A genuine
-           configure failure is not lost - it surfaces as the activate failing
-           right after it, and the node itself logged the reason. -->
+      <!-- Managed nodes, only if not active yet: a restart keeps the robot session
+           and the weights. Configure refuses a configured node, hence ForceSuccess. -->
       <Sequence name="bring_up">
         <LogMessage message="Bringing the robot driver and the inference node up."/>
 
@@ -58,120 +37,68 @@
         </Fallback>
       </Sequence>
 
-      <!-- Ticks the cycle again for as long as it keeps succeeding, which is
-           for as long as the process lives: a run that ends early is caught
-           below, so the only way out is Ctrl+C. -->
+      <!-- Runs for as long as the process lives; an early end is caught below. -->
       <KeepRunningUntilFailure>
         <Sequence name="cycle">
 
           <LogMessage message="Ready. S starts a run, E aborts, Q acknowledges an abort."/>
           <WaitForStart/>
 
-          <!-- The catch that makes an abort a return to waiting. Whatever ended
-               the run early - E, a node that went away, or a step out of
-               retries - lands on the log line below, which succeeds, so the
-               cycle succeeds and comes round to WaitForStart again. -->
+          <!-- Whatever ends a run early lands on the log line below, back to waiting. -->
           <Fallback name="run_or_give_up">
 
-            <!-- Reactive, so IsAbortClear is re-ticked on every pass through
-                 the tree rather than once at the start. The moment it fails,
-                 whichever step is running below is halted. -->
+            <!-- Reactive: IsAbortClear is checked every tick, so E halts the running step. -->
             <ReactiveSequence name="guarded">
               <IsAbortClear/>
 
               <Sequence name="run">
 
-                <!-- A node can die, or be taken down the lifecycle by hand,
-                     between one run and the next. Checked once per cycle, here
-                     in a plain Sequence: IsNodeActive is a service call, so in
-                     the reactive branch above it would ask twice a second for
-                     as long as a run lasts.
-
-                     The trajectory node cannot be checked this way and is not
-                     worth a check of its own: if it is gone,
-                     GenerateTrajectories fails and the Fallback above brings
-                     the tree back to waiting - later than this, but
-                     harmlessly. -->
+                <!-- Once per run, outside the guard, which would call them on every tick. -->
                 <IsNodeActive service_name="/robot_controller/get_state"/>
                 <IsNodeActive service_name="/inference_node/get_state"/>
 
-                <!-- Mastership, motors on, RAPID started. Here and not in the
-                     bring-up, for two reasons. The motors come on when somebody
-                     asks for a run, not when this process starts. And a motion
-                     that fails stops RAPID - asking again at the top of every
-                     run is what lets the next S recover instead of failing the
-                     same way. When everything is already up it only answers
-                     that it is. -->
+                <!-- At every run, so a motion failure that stopped RAPID recovers on the next S. -->
                 <RobotRequest command="make_robot_ready"/>
 
-                <!-- Every run starts from the same pose. After a normal run the
-                     robot is already there and this finishes at once; after an
-                     abort it is the move that brings the robot back. A joint
-                     move from wherever the abort left it - near the board, jog
-                     it clear by hand before pressing S. Written here and at the
-                     end of the run, keep both the same. -->
-                <MoveToJoints name="MoveHome" joints_deg="0;0;0;0;0;0" speed="300"/>
+                <!-- Every run starts off the board, wherever the last one left the arm. -->
+                <SubTree ID="BackOff"/>
 
-                <!-- From home over to the camera's pose. MoveJ, because nothing here needs a straight
-                     line and joint moves reach further.
-
-                     The photo pose is a placeholder: cartesian, metres, in
-                     draw_wobj, then the ROS quaternion x,y,z,w. It is written
-                     here, in CentreFace and in BackToPhotoPose below - keep all
-                     three the same. Centring works every move out from the pose
-                     it is given and never reads where the arm really is. -->
+                <!-- Metres and ROS quaternion in wobj0. Keep the same pose in CentreFace and
+                     BackToPhotoPose: centring never reads where the arm really is. -->
                 <ExecutePath name="MoveToPhotoPose" path="-0.12,-0.9,1.2,1,0,0,0"
                              motion_command="MoveJ" speed="300"
                              tool="tool0" wobj="wobj0"/>
 
-                <!-- The scan, and what happens when it comes up empty: back to
-                     the photo pose, wherever in Z the scan left the camera, and
-                     wait. C scans again, E gives up on the run - the wait sits
-                     inside the guard above, like everything else here.
-
-                     ForceFailure is what makes C a retry: the recovery branch
-                     ends up failing whatever the operator does, so the Fallback
-                     fails and RetryUntilSuccessful ticks the scan again. -->
+                <!-- Frame the visitor, then analyse them. If either fails: back to
+                     the photo pose and wait - C tries both again, E aborts. -->
                 <RetryUntilSuccessful num_attempts="-1">
                   <Fallback>
-                    <CentreFace photo_pose="-0.12,-0.9,1.2,1,0,0,0"
-                                tool="tool0" wobj="wobj0"/>
+                    <Sequence name="frame_and_analyse">
+                      <CentreFace photo_pose="-0.12,-0.9,1.2,1,0,0,0"
+                                  tool="tool0" wobj="wobj0"/>
+                      <RunInference attributes="{attributes}"/>
+                    </Sequence>
+                    <!-- Always fails, so that after C the retry runs both again. -->
                     <ForceFailure>
                       <Sequence name="ask_for_a_retry">
                         <ExecutePath name="BackToPhotoPose"
                                      path="-0.12,-0.9,1.2,1,0,0,0"
                                      motion_command="MoveL" speed="300"
                                      tool="tool0" wobj="wobj0"/>
-                        <LogMessage message="Nobody framed. C tries again, E aborts."/>
+                        <LogMessage message="No visitor analysed. C tries again, E aborts."/>
                         <WaitForContinue/>
                       </Sequence>
                     </ForceFailure>
                   </Fallback>
                 </RetryUntilSuccessful>
 
-                <!-- The full model pass runs once, on a frame that is already
-                     framed well - the centring loop reads a cheaper
-                     detection.
-
-                     Faked for now. MockInference writes the same message on
-                     the same port the real node would, so everything below can
-                     be built and watched with no camera and no GPU. Edit the
-                     attributes here to draw a different face; swapping in the
-                     real thing is <RunInference attributes="{attributes}"/>. -->
-                <MockInference attributes="{attributes}"
-                               age="32" gender="male" emotion="happiness"/>
-
-                <!-- All three paths come back at once and all three land on
-                     the blackboard; which of them the robot draws is decided
-                     below. -->
+                <!-- All three paths at once; what gets drawn is decided below. -->
                 <GenerateTrajectories attributes="{attributes}"
                                       labels="{labels}"
                                       values="{values}"
                                       erase="{erase}"/>
 
-                <!-- The labels go on once, onto a clean board. The flag is set
-                     only once they are down, so a run aborted halfway through
-                     them tries them again next time. -->
+                <!-- Labels once; the flag is set only after they are down. -->
                 <Precondition if="!board_written" else="SUCCESS">
                   <Sequence name="write_labels">
                     <ExecutePath name="DrawLabels" path="{labels}" speed="300"
@@ -183,32 +110,22 @@
                 <ExecutePath name="DrawValues" path="{values}" speed="300"
                              tool="tool_draw" wobj="draw_wobj"/>
 
-                <!-- Away from the board before anything else moves: the switch
-                     to the eraser turns the wrist, and it should not do that
-                     with the pen a couple of centimetres off the surface. -->
+                <!-- Off the board before the wrist turns for the eraser. -->
                 <SubTree ID="BackOff"/>
 
-                <!-- The values stay on the board for as long as the visitor
-                     wants to read them, and the operator says when that is.
-                     Still inside the guard, so E works while it waits. -->
+                <!-- The operator says when the visitor has read it; E still works here. -->
                 <LogMessage message="Drawn. C erases the board, E aborts."/>
                 <WaitForContinue/>
 
                <ExecutePath name="ChangeAndApproach" path="0.4,0.1,0.3,1,0,0,0" speed="300"
                  tool="tool_erase" wobj="draw_wobj"/>
 
-                <!-- The eraser sits on the same flange as the pen, so erasing
-                     is only another tool name, with no tool change and
-                     nothing to wait for in between. For now both use the
-                     pen's tooldata until the eraser has one of its own - with
-                     a real pen fitted, this sweep draws over the values. -->
+                <!-- Same flange as the pen; tool_erase still uses the pen's tooldata. -->
                 <ExecutePath name="EraseValues" path="{erase}" speed="300"
                              tool="tool_erase" wobj="draw_wobj"/>
 
-                <!-- And away again, clear of the board before the joint move
-                     home, which parks the robot where the next run starts. -->
+                <!-- And off the board again. -->
                 <SubTree ID="BackOff"/>
-                <MoveToJoints name="ParkHome" joints_deg="0;0;0;0;0;0" speed="300"/>
               </Sequence>
 
             </ReactiveSequence>
@@ -221,14 +138,7 @@
     </Sequence>
   </BehaviorTree>
 
-  <!-- The point the arm backs off to, closer to its base than the board is.
-       Its own tree only so that the point is written down once and used from
-       two places.
-
-       A placeholder in wobj0, the robot base, metres: x,y,z then the ROS
-       quaternion qx,qy,qz,qw - here the pen pointing straight down, as it draws.
-       Empty wobj is wobj0. Set the point for the real cell before the first
-       run. -->
+  <!-- Back-off point, its own tree because two places use it. Placeholder, wobj0. -->
   <BehaviorTree ID="BackOff">
     <ExecutePath name="BackOff" path="0.7,0.3,0.8,-0.701589459,0.659479492,-0.192839851,0.188869854" speed="300"
                  tool="tool_draw" wobj=""/>

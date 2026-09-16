@@ -12,11 +12,7 @@ namespace tvarometr_orchestrator
 namespace
 {
 
-/// The transitions a run needs, by the word the tree writes.
-///
-/// Empty for anything else, rather than a number that happens to be free: the
-/// message numbers transitions from zero, so there is no spare value to mean
-/// "not one of ours".
+/// The transitions a run needs, by name; empty for anything else.
 std::optional<uint8_t> transitionId(const std::string & name)
 {
   using lifecycle_msgs::msg::Transition;

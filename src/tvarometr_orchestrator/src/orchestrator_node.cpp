@@ -29,9 +29,7 @@
 namespace
 {
 
-/// BT.CPP's StdCoutLogger, minus IsAbortClear. The guard re-checks it on every
-/// tick, so at the tick rate below it would bury every other line twenty times
-/// a second.
+/// StdCoutLogger without IsAbortClear, which the guard re-checks on every tick.
 class QuietCoutLogger : public BT::StatusChangeLogger
 {
 public:
@@ -71,9 +69,7 @@ int main(int argc, char ** argv)
     "/behavior_trees/tvarometr.xml";
 
   node->declare_parameter("tree_file", installed_tree);
-  // Fast, so that E halts a step at once and a ROS node's timeout fires when it
-  // is due rather than up to a tick later. The tree also wakes early when such
-  // a node has news - see the loop below.
+  // Fast, so E halts a step at once and ROS timeouts fire on time.
   node->declare_parameter("tick_period_s", 0.05);
   node->declare_parameter("groot2_port", 1667);
 
@@ -84,28 +80,22 @@ int main(int argc, char ** argv)
   BT::BehaviorTreeFactory factory;
   factory.registerNodeType<tvarometr_orchestrator::LogMessage>("LogMessage", node->get_logger());
 
-  // The action server lives in the inference container. Its default name is set
-  // here rather than in the tree, so the XML stays about behaviour.
+  // Server names live here, so the XML stays about behaviour.
   BT::RosNodeParams inference_params(node, "/inference_node/run_inference");
   factory.registerNodeType<tvarometr_orchestrator::RunInference>("RunInference", inference_params);
 
-  // The centring node answers at once; the scan itself runs for as long as it
-  // takes and reports through feedback, which no timeout here touches.
+  // Only acceptance is timed; the scan itself reports through feedback.
   BT::RosNodeParams centring_params(node, "/centring_node/centre_face");
   centring_params.server_timeout = std::chrono::seconds(3);
   factory.registerNodeType<tvarometr_orchestrator::CentreFace>("CentreFace", centring_params);
 
-  // Plain geometry, a couple of milliseconds, so the library's one-second
-  // default timeout is left alone.
+  // A couple of milliseconds, well within the library's one-second default.
   BT::RosNodeParams trajectory_params(node, "/trajectory_node/generate_trajectories");
   factory.registerNodeType<tvarometr_orchestrator::GenerateTrajectories>(
     "GenerateTrajectories", trajectory_params);
 
-  // The timeout covers two waits. Accepting a goal costs the driver a round trip
-  // to the controller to check RAPID is idle, which can outlast the one-second
-  // default. And an abort blocks the tick while the cancel is acknowledged and
-  // the result collected - the arm is still running out its queue then, so this
-  // is also how long the tree stays frozen before it gives up on that result.
+  // Acceptance costs the driver an RWS round trip, and an abort waits this long
+  // for the cancelled goal's result.
   BT::RosNodeParams motion_params(node, "/robot_controller/robot_robtarget_move");
   motion_params.server_timeout = std::chrono::seconds(3);
   factory.registerNodeType<tvarometr_orchestrator::ExecutePath>("ExecutePath", motion_params);
@@ -115,24 +105,18 @@ int main(int argc, char ** argv)
   joint_params.server_timeout = std::chrono::seconds(3);
   factory.registerNodeType<tvarometr_orchestrator::MoveToJoints>("MoveToJoints", joint_params);
 
-  // make_robot_ready is the slow one: when RAPID is not running it turns the
-  // motors on, resets the program pointer and starts it, with a second's settle
-  // after each. The library's one-second default would fail it every time it
-  // has real work to do.
+  // make_robot_ready may start the motors and RAPID, settling after each.
   BT::RosNodeParams request_params(node, "/robot_controller/controller_request");
   request_params.server_timeout = std::chrono::seconds(15);
   factory.registerNodeType<tvarometr_orchestrator::RobotRequest>("RobotRequest", request_params);
 
-  // Configure on the inference node loads half a gigabyte of weights and the
-  // service answers only once it is done, so the library's one-second default
-  // would call every bring-up a timeout.
+  // Configuring the inference node loads the weights before it answers.
   BT::RosNodeParams lifecycle_params(node);
   lifecycle_params.server_timeout = std::chrono::minutes(2);
   factory.registerNodeType<tvarometr_orchestrator::ChangeLifecycleState>(
     "ChangeLifecycleState", lifecycle_params);
 
-  // get_state answers at once. Waiting longer here would only delay noticing
-  // that a node has gone away.
+  // get_state answers at once; longer would only delay noticing a dead node.
   BT::RosNodeParams state_params(node);
   state_params.server_timeout = std::chrono::seconds(2);
   factory.registerNodeType<tvarometr_orchestrator::IsNodeActive>("IsNodeActive", state_params);
@@ -158,14 +142,11 @@ int main(int argc, char ** argv)
   }
   RCLCPP_INFO(node->get_logger(), "Loaded %s", tree_file.c_str());
 
-  // Prints every state change a node goes through, which is what a tick
-  // actually looks like.
+  // Prints every state change in the tree.
   QuietCoutLogger tree_logger(tree);
 
-  // Groot2 attaches over TCP and draws the tree as it ticks. The container is
-  // on the host network, so a Groot2 running on the host reaches this port with
-  // no mapping. Held by pointer because a busy port must not take the run down
-  // with it - this is a window onto the run, not part of it.
+  // Groot2 reaches this over the host network. A pointer, so a busy port cannot
+  // stop the run.
   std::unique_ptr<BT::Groot2Publisher> groot2_publisher;
   try {
     groot2_publisher = std::make_unique<BT::Groot2Publisher>(
@@ -175,15 +156,10 @@ int main(int argc, char ** argv)
     RCLCPP_WARN(node->get_logger(), "No Groot2 this run: %s", e.what());
   }
 
-  // Started only once the tree has loaded, so a bad tree file cannot leave the
-  // terminal stuck out of line mode.
+  // Only once the tree has loaded, so a bad tree cannot leave the terminal raw.
   std::thread keyboard(tvarometr_orchestrator::readKeyboard, &operator_input, node->get_logger());
 
-  // An abort sends the tree back to waiting rather than ending it, so in normal
-  // use this loop only stops on Ctrl+C.
-  //
-  // tree.sleep and not a fixed-rate sleep: a ROS node that has just read a
-  // result or feedback for its own goal wakes the tree to act on it at once.
+  // Stops only on Ctrl+C. tree.sleep, because a ROS node with news wakes it early.
   const auto tick_duration = std::chrono::duration_cast<std::chrono::system_clock::duration>(
     std::chrono::duration<double>(tick_period));
   BT::NodeStatus status = BT::NodeStatus::RUNNING;
@@ -194,8 +170,7 @@ int main(int argc, char ** argv)
   }
 
   RCLCPP_INFO(node->get_logger(), "Tree finished: %s", BT::toStr(status).c_str());
-  // shutdown() first: it is what makes rclcpp::ok() false and lets the reader
-  // fall out of its loop and hand the terminal back.
+  // shutdown() first, so the keyboard reader sees rclcpp::ok() go false.
   rclcpp::shutdown();
   keyboard.join();
   return status == BT::NodeStatus::SUCCESS ? 0 : 1;

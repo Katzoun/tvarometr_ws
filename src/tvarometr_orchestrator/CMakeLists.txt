@@ -62,12 +62,10 @@ install(DIRECTORY behavior_trees
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
 
-  # No file in this repository carries a licence header. cpplint checks for one
-  # too, and is told not to by CPPLINT.cfg next to this file - everything else
-  # it catches still runs.
+  # No licence headers here; cpplint's own check is off in CPPLINT.cfg.
   set(ament_cmake_copyright_FOUND TRUE)
 
-  # Python in this repository is linted by ruff, with its own docstring rules.
+  # Python is linted by ruff.
   set(ament_cmake_pep257_FOUND TRUE)
 
   ament_lint_auto_find_test_dependencies()

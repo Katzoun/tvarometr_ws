@@ -1,6 +1,5 @@
-// A goal whose send timed out can still reach the server and be accepted - and
-// then the robot moves with nothing in the tree watching it. behaviortree_ros2
-// only reports the timeout, so the nodes that move the robot call this.
+// A goal whose send timed out may still be accepted, and the robot would move
+// unwatched. behaviortree_ros2 only reports the timeout.
 
 #ifndef TVAROMETR_ORCHESTRATOR__CANCEL_ORPHANED_GOALS_HPP_
 #define TVAROMETR_ORCHESTRATOR__CANCEL_ORPHANED_GOALS_HPP_
@@ -12,14 +11,9 @@
 namespace tvarometr_orchestrator
 {
 
-/// After a send timeout, asks the server to cancel every goal it holds on this
-/// action. Every goal and not only ours, because the one that timed out has no
-/// handle to cancel it by - and while the tree waits on this action, nothing
-/// else should be running on it anyway.
-///
-/// Covers a goal the server accepted while this client was not reading its
-/// answer. A server stalled for so long that it accepts only after the cancel
-/// has arrived is not covered.
+/// After a send timeout, cancels every goal on the action: the lost one has no
+/// handle, and nothing else should run there meanwhile. A server that accepts
+/// only after the cancel arrives is not covered.
 template<typename ActionT>
 void cancelOrphanedGoals(
   BT::ActionNodeErrorCode error, rclcpp_action::Client<ActionT> & client,

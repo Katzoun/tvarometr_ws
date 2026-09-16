@@ -1,24 +1,14 @@
-# Turns the analysis into the paths the robot puts on the board.
-#
-# A service rather than an action: it is one pass of plain geometry, a couple of
-# milliseconds, with nothing to report on the way and nothing worth cancelling.
-#
-# All three paths come from one call because they share a layout - where the
-# eraser sweeps is decided by where the fixed labels end. Asking for them
-# separately would let a parameter change slide one past the other, and the way
-# that shows up is the robot wiping text that was meant to stay.
+# The label, value and erase paths for one analysis, from one shared layout.
 tvarometr_interfaces/FaceAttributes attributes
 ---
 bool success
 string message
 
-# Positions in metres, in the board's own frame: z=0 is on the board, z>0 is
-# lifted. Each path starts and ends lifted.
+# Metres in the board's frame, z=0 on the board; each path starts and ends lifted.
 
-# The fixed column of labels. Drawn once, onto a clean board.
+# The fixed labels, drawn once onto a clean board.
 geometry_msgs/PoseArray labels
-# This run's answers, in the right-hand column. Drawn every cycle.
+# This run's answers, drawn every cycle.
 geometry_msgs/PoseArray values
-# Overlapping sweeps across the value column, clear of the labels. Covers the
-# whole column whatever the last values were, so it does not depend on them.
+# Sweeps over the whole value column, whatever was written there.
 geometry_msgs/PoseArray erase

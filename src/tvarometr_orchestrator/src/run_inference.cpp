@@ -1,5 +1,7 @@
 #include "tvarometr_orchestrator/run_inference.hpp"
 
+#include "tvarometr_orchestrator/cancel_orphaned_goals.hpp"
+
 namespace tvarometr_orchestrator
 {
 
@@ -26,9 +28,18 @@ BT::NodeStatus RunInference::onResultReceived(const WrappedResult & result)
   return BT::NodeStatus::SUCCESS;
 }
 
-BT::NodeStatus RunInference::onFailure(BT::ActionNodeErrorCode error)
+BT::NodeStatus RunInference::onFailure(
+  BT::ActionNodeErrorCode error, const std::optional<WrappedResult> & result)
 {
-  RCLCPP_ERROR(logger(), "Inference action failed: %s", BT::toStr(error));
+  // A lost goal would keep collecting and turn the next one away as a second goal.
+  cancelOrphanedGoals(error, *client_instance_->action_client, logger());
+
+  if (result && result->result) {
+    RCLCPP_ERROR(
+      logger(), "Inference %s: %s", BT::toStr(error), result->result->message.c_str());
+  } else {
+    RCLCPP_ERROR(logger(), "Inference action failed: %s", BT::toStr(error));
+  }
   return BT::NodeStatus::FAILURE;
 }
 

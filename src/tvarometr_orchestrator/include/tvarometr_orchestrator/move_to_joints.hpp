@@ -10,16 +10,9 @@
 namespace tvarometr_orchestrator
 {
 
-/// Moves the arm to one fixed set of axis angles and waits until it is there.
+/// Moves the arm to fixed axis angles, in degrees, and waits until it is there.
 ///
-/// For the poses the run keeps coming back to, like the one the camera
-/// photographs from. Joint space rather than a cartesian target, because axis
-/// angles name exactly one arm configuration - a robtarget for a fixed pose can
-/// be reached with the wrist flipped, and which one the controller picks is
-/// not something to find out with a visitor standing in front of it.
-///
-/// The angles are degrees, the unit the FlexPendant and RobotStudio show, so a
-/// pose jogged to by hand can be copied straight into the tree file.
+/// Joints name one arm configuration; a robtarget could be reached wrist-flipped.
 class MoveToJoints : public BT::RosActionNode<robot_control_msgs::action::ExecuteJointArray>
 {
 public:

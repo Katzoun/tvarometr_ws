@@ -1,5 +1,4 @@
-# Runs the detector + age/gender + emotion models over the newest camera frame.
-# No goal fields - the node always works on whatever it last received.
+# Analyses the visitor over several frames and returns the averaged answer.
 ---
 bool success
 string message

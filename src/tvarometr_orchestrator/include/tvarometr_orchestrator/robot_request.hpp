@@ -9,12 +9,9 @@
 namespace tvarometr_orchestrator
 {
 
-/// Calls one command on the robot driver's controller_request service.
+/// Calls one command on the driver's controller_request service.
 ///
-/// The driver keeps everything that is not a motion behind this one service,
-/// named by a string - make_robot_ready, set_speedratio, run_rapid_routine and
-/// the rest - so one node with a `command` port reaches all of it. The driver's
-/// `help` command lists what there is.
+/// The driver's `help` command lists them.
 class RobotRequest : public BT::RosServiceNode<robot_control_msgs::srv::RobotRequestSrv>
 {
 public:

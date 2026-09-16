@@ -10,10 +10,6 @@ namespace tvarometr_orchestrator
 {
 
 /// Writes a line to the ROS log.
-///
-/// A tree needs at least one node of its own to be worth loading, and this is
-/// the smallest one that is still useful - it stays handy for marking progress
-/// once the real nodes are in.
 class LogMessage : public BT::SyncActionNode
 {
 public:

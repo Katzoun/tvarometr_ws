@@ -1,8 +1,4 @@
-"""The centring node with its settings, which are the cell's own numbers.
-
-A launch file and not a plain run because min_z and max_z have to come from
-config/centring.yaml - defaults that fit no cell are worth nothing here.
-"""
+"""The centring node with config/centring.yaml, where the cell's Z limits live."""
 
 import os
 

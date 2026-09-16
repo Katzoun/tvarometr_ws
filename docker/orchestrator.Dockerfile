@@ -8,10 +8,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     COLCON_DEFAULTS_FILE=/colcon-defaults.yaml \
     BASH_ENV=/ros-env.sh
 
-# Canonical's own archive answers at about a megabyte a second from here, and
-# security.ubuntu.com does not answer at all; the rosdep step below pulls a
-# few hundred megabytes through both. A country mirror carries jammy-security
-# too and saturates the line instead. Swap it if you are not in Europe.
+# Czech mirror: Canonical's archive crawls from here and security.ubuntu.com
+# does not answer. Swap it outside Europe.
 RUN sed -i \
     -e 's|http://archive.ubuntu.com|http://cz.archive.ubuntu.com|g' \
     -e 's|http://security.ubuntu.com|http://cz.archive.ubuntu.com|g' \
@@ -24,10 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3-colcon-common-extensions \
     && rm -rf /var/lib/apt/lists/*
 
-# Manifests only: the source itself is mounted at run time. robot_control_msgs
-# belongs to the driver's repository and behaviortree_ros2 is third party, so
-# `vcs import src < dependencies.repos` has to have run before this image is
-# built - otherwise the COPY below fails.
+# Manifests only, for rosdep; needs `vcs import src < dependencies.repos` first.
 COPY src/tvarometr_orchestrator/package.xml /tmp/deps/tvarometr_orchestrator/package.xml
 COPY src/tvarometr_interfaces/package.xml /tmp/deps/tvarometr_interfaces/package.xml
 COPY src/tvarometr_geometry/package.xml /tmp/deps/tvarometr_geometry/package.xml
@@ -39,18 +34,13 @@ RUN apt-get update \
     && rosdep install --from-paths /tmp/deps --ignore-src --rosdistro ${ROS_DISTRO} -y \
     && rm -rf /tmp/deps /var/lib/apt/lists/*
 
-# behaviortree_cpp 4.9.1 for Humble installs its library into the multiarch
-# subdirectory while its own CMake export looks for it one level up, so
-# find_package(behaviortree_cpp) fails on a package it just installed. One
-# symlink is the whole fix. The -mindepth keeps this a no-op once the Debian
-# package puts the library where its export expects it.
+# behaviortree_cpp 4.9.1 installs its library a directory below where its CMake
+# export looks. The symlink fixes find_package and is a no-op once upstream is fixed.
 RUN set -eux; \
     lib="$(find /opt/ros/${ROS_DISTRO}/lib -mindepth 2 -name 'libbehaviortree_cpp.so' -print -quit)"; \
     if [ -n "$lib" ]; then ln -s "$lib" /opt/ros/${ROS_DISTRO}/lib/libbehaviortree_cpp.so; fi
 
-# The trajectory node's font reader, which rosdep has no rule for. pip arrives here
-# rather than with the tools at the top, so that adding to either list leaves
-# the rosdep layer above cached.
+# svg.path has no rosdep rule. Installed after rosdep, so each list keeps its layer cached.
 COPY docker/requirements-orchestrator.txt /tmp/requirements-orchestrator.txt
 RUN apt-get update && apt-get install -y --no-install-recommends python3-pip \
     && rm -rf /var/lib/apt/lists/* \

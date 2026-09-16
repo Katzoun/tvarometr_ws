@@ -1,17 +1,13 @@
 # Where the visitor stands in a camera frame, from the detector alone.
-# The centring loop calls this over and over; RunInference is the full pass.
 
-# Only a frame taken at or after this time counts - the robot has stopped by
-# then. Zero takes the newest frame, however old.
+# Only a frame taken at or after this counts; zero takes the newest.
 builtin_interfaces/Time not_before
 ---
-# True once somebody close enough to be the visitor is in the frame, whether or
-# not their face is. Everything below is only meaningful then.
+# True when somebody close enough to be the visitor is in the frame.
 bool success
 string message
 sensor_msgs/RegionOfInterest person_bbox
-# Zero size when the visitor's face is not in view: their head is out of the
-# frame - the box then runs off the top edge - or turned away from the camera.
+# Zero size when their face is out of the frame or turned away.
 sensor_msgs/RegionOfInterest face_bbox
 uint32 image_width
 uint32 image_height

@@ -23,9 +23,7 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
 from sensor_msgs.msg import CompressedImage
 
-# MiVOLO and ResEmoteNet are vendored as-is and import themselves absolutely
-# (from mivolo.model import ...), so their directory goes on the path instead of
-# rewriting third-party code.
+# MiVOLO and ResEmoteNet are vendored as-is and import themselves absolutely.
 sys.path.insert(0, str(Path(__file__).parent / "vendor"))
 
 import numpy as np
@@ -96,9 +94,7 @@ class InferenceNode(LifecycleNode):
         self.logger = self.get_logger()
         self.cb_group = ReentrantCallbackGroup()
 
-        # Weights live outside the source tree - they are hundreds of megabytes and
-        # have no business sitting next to the code. Each path can be overridden on
-        # its own if you want to try a single model without moving the rest.
+        # Weights live outside the source tree; each path can be overridden alone.
         self.declare_parameter("models_dir", "/opt/tvarometr/models")
         models_dir = Path(
             self.get_parameter("models_dir").get_parameter_value().string_value
