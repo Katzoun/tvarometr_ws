@@ -89,7 +89,7 @@ Python, plain nodes (nothing to load).
 
 Weights are in `models/` (Git LFS), mounted at `/opt/tvarometr/models`:
 `yolov8x_person_face.pt` (detection), `model_imdb_cross_person_4.22_99.46.pth.tar`
-(age, gender), `affectnet7_model.pth` (emotion).
+(age, gender), `enet_b2_7.pt` (emotion, HSEmotion; chosen in `benchmark/`).
 
 ### `tvarometr_interfaces`
 

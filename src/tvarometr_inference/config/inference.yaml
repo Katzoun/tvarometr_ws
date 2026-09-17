@@ -12,19 +12,21 @@ inference_node:
     # Any single model can come from elsewhere, e.g. to try a new checkpoint.
     # detector_path: /opt/tvarometr/models/yolov8x_person_face.pt
     # mivolo_path: /opt/tvarometr/models/model_imdb_cross_person_4.22_99.46.pth.tar
-    # resemotenet_path: /opt/tvarometr/models/affectnet7_model.pth
+    # hsemotion_path: /opt/tvarometr/models/enet_b2_7.pt
 
     # The camera node's JPEGs; only the frames the node analyses get decoded.
     image_topic: /image_raw/compressed
 
     # The visitor is the widest person near the axis; anyone narrower is too far.
-    min_person_width_px: 300
+    min_person_width_px: 650
     # Axis over the floor mark as a fraction of the width; axis_falloff away counts
     # half, 0.0 ignores it. Keep the decimal points, or the node will not start.
     axis_x: 0.5
     axis_falloff: 0.25
     # Warn when the runner-up scores at least this fraction of the winner.
     ambiguity_ratio: 0.8
+    # The emotion model sees a square around the face, this much of it added per side.
+    emotion_margin: 0.3
     # How long DetectFace waits for a frame taken after the robot stopped.
     fresh_frame_timeout_s: 2.0
 

@@ -23,7 +23,7 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
 from sensor_msgs.msg import CompressedImage
 
-# MiVOLO and ResEmoteNet are vendored as-is and import themselves absolutely.
+# MiVOLO is vendored as-is and imports itself absolutely.
 sys.path.insert(0, str(Path(__file__).parent / "vendor"))
 
 import numpy as np
@@ -32,7 +32,6 @@ from mivolo.model.mi_volo import MiVOLO
 from mivolo.model.yolo_detector import Detector
 from mivolo.structures import PersonAndFaceResult
 from PIL import Image as PILImage
-from resemotenet.ResEmoteNet import ResEmoteNet
 from torchvision import transforms
 
 from tvarometr_inference.annotation import draw_debug, draw_scene
@@ -41,6 +40,7 @@ from tvarometr_inference.attributes import (
     build_face_attributes,
     build_region_of_interest,
 )
+from tvarometr_inference.face_crop import emotion_crop
 from tvarometr_inference.visitor_selection import Visitor, select_visitor
 from tvarometr_interfaces.action import RunInference
 from tvarometr_interfaces.srv import DetectFace
@@ -56,7 +56,7 @@ class Models:
 
     detector: Detector
     mivolo: MiVOLO
-    resemotenet: ResEmoteNet
+    hsemotion: torch.nn.Module
 
 
 @dataclass
@@ -107,16 +107,15 @@ class InferenceNode(LifecycleNode):
             "mivolo_path",
             str(models_dir / "model_imdb_cross_person_4.22_99.46.pth.tar"),
         )
-        self.declare_parameter(
-            "resemotenet_path", str(models_dir / "affectnet7_model.pth")
-        )
+        self.declare_parameter("hsemotion_path", str(models_dir / "enet_b2_7.pt"))
         self.declare_parameter("device", "cpu")
         self.declare_parameter("image_topic", "/image_raw/compressed")
         # Read on every frame, so `ros2 param set` tunes them live.
-        self.declare_parameter("min_person_width_px", 300)
+        self.declare_parameter("min_person_width_px", 650)
         self.declare_parameter("ambiguity_ratio", 0.8)
         self.declare_parameter("axis_x", 0.5)
         self.declare_parameter("axis_falloff", 0.25)
+        self.declare_parameter("emotion_margin", 0.3)
         # How long DetectFace waits for a frame taken after not_before.
         self.declare_parameter("fresh_frame_timeout_s", 2.0)
         # RunInference averages the visitor's face over this many frames, and
@@ -165,8 +164,8 @@ class InferenceNode(LifecycleNode):
         self.mivolo_path = (
             self.get_parameter("mivolo_path").get_parameter_value().string_value
         )
-        self.resemotenet_path = (
-            self.get_parameter("resemotenet_path").get_parameter_value().string_value
+        self.hsemotion_path = (
+            self.get_parameter("hsemotion_path").get_parameter_value().string_value
         )
 
         self.image_topic = (
@@ -286,7 +285,7 @@ class InferenceNode(LifecycleNode):
         for label, path in (
             ("detector", self.detector_path),
             ("MiVOLO", self.mivolo_path),
-            ("ResEmoteNet", self.resemotenet_path),
+            ("HSEmotion", self.hsemotion_path),
         ):
             if not Path(path).is_file():
                 self.logger.error(
@@ -308,13 +307,13 @@ class InferenceNode(LifecycleNode):
         )
         self.logger.info("MiVOLO model loaded successfully")
 
-        resemotenet = ResEmoteNet().to(self.device)
-        checkpoint = torch.load(self.resemotenet_path, weights_only=False)
-        resemotenet.load_state_dict(checkpoint["model_state_dict"])
-        resemotenet.eval()
-        self.logger.info("ResEmoteNet model loaded successfully")
+        # A whole pickled timm model, not just weights - that is how HSEmotion ships it.
+        hsemotion = torch.load(
+            self.hsemotion_path, map_location=self.device, weights_only=False
+        ).eval()
+        self.logger.info("HSEmotion model loaded successfully")
 
-        self._models = Models(detector, mivolo, resemotenet)
+        self._models = Models(detector, mivolo, hsemotion)
 
     def image_callback(self, msg: CompressedImage):
         with self._frame_arrived:
@@ -614,10 +613,12 @@ class InferenceNode(LifecycleNode):
         emotion_probabilities = None
         if full and visitor.face is not None:
             models.mivolo.predict(img, detections)
-            x1, y1, x2, y2 = faces[visitor.face]
+            x1, y1, x2, y2 = emotion_crop(
+                faces[visitor.face], self._double("emotion_margin"), (width, height)
+            )
             if x2 > x1 and y2 > y1:
                 emotion_probabilities = self._predict_emotion(
-                    models.resemotenet, img[y1:y2, x1:x2]
+                    models.hsemotion, img[y1:y2, x1:x2]
                 )
 
         return FrameAnalysis(
@@ -674,8 +675,10 @@ class InferenceNode(LifecycleNode):
                     )
                 probabilities = analysis.emotion_probabilities
                 if probabilities is not None:
-                    best = int(np.argmax(probabilities))
-                    text += f" {self.EMOTIONS[best]} {probabilities[best]:.2f}"
+                    top = np.argsort(probabilities)[::-1][:3]
+                    text += " " + ", ".join(
+                        f"{self.EMOTIONS[k]} {probabilities[k]:.2f}" for k in top
+                    )
             labels.append(text)
 
         status = f"{len(analysis.persons)} person(s)"
@@ -714,24 +717,24 @@ class InferenceNode(LifecycleNode):
         msg.data.frombytes(jpeg.tobytes())
         publisher.publish(msg)
 
-    # Class order of our affectnet7_model.pth, measured: 43.6% on balanced AffectNet
-    # val, upstream's order 11.1%. The benchmark is in git history before b4b73bd.
+    # Class order of enet_b2_7, the best fit in benchmark/ (71.0% on balanced AffectNet
+    # val). Any other checkpoint needs its order measured with benchmark/score.py.
     EMOTIONS: ClassVar[tuple[str, ...]] = (
-        "neutral",
+        "anger",
+        "disgust",
+        "fear",
         "happiness",
+        "neutral",
         "sadness",
         "surprise",
-        "fear",
-        "disgust",
-        "anger",
     )
 
-    def _predict_emotion(self, resemotenet: ResEmoteNet, face_roi) -> tuple[float, ...]:
+    def _predict_emotion(self, model: torch.nn.Module, face_roi) -> tuple[float, ...]:
         """One probability per label in EMOTIONS for the face crop."""
         transform = transforms.Compose(
             [
-                transforms.Resize((64, 64)),
-                transforms.Grayscale(num_output_channels=3),
+                # enet_b2_7's input size; the b0 models take 224.
+                transforms.Resize((260, 260)),
                 transforms.ToTensor(),
                 transforms.Normalize(
                     mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
@@ -746,7 +749,7 @@ class InferenceNode(LifecycleNode):
         )
 
         with torch.no_grad():
-            outputs = resemotenet(img_tensor)
+            outputs = model(img_tensor)
             probabilities = F.softmax(outputs, dim=1)
 
         return tuple(float(p) for p in probabilities.cpu().numpy().flatten())
