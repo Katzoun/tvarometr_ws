@@ -41,6 +41,7 @@ from tvarometr_inference.attributes import (
     build_face_attributes,
     build_region_of_interest,
 )
+from tvarometr_inference.face_crop import emotion_crop
 from tvarometr_inference.visitor_selection import Visitor, select_visitor
 from tvarometr_interfaces.action import RunInference
 from tvarometr_interfaces.srv import DetectFace
@@ -108,7 +109,7 @@ class InferenceNode(LifecycleNode):
             str(models_dir / "model_imdb_cross_person_4.22_99.46.pth.tar"),
         )
         self.declare_parameter(
-            "resemotenet_path", str(models_dir / "affectnet7_model.pth")
+            "resemotenet_path", str(models_dir / "ResEmoteNetBS64.pth")
         )
         self.declare_parameter("device", "cpu")
         self.declare_parameter("image_topic", "/image_raw/compressed")
@@ -117,6 +118,7 @@ class InferenceNode(LifecycleNode):
         self.declare_parameter("ambiguity_ratio", 0.8)
         self.declare_parameter("axis_x", 0.5)
         self.declare_parameter("axis_falloff", 0.25)
+        self.declare_parameter("emotion_margin", 0.3)
         # How long DetectFace waits for a frame taken after not_before.
         self.declare_parameter("fresh_frame_timeout_s", 2.0)
         # RunInference averages the visitor's face over this many frames, and
@@ -310,7 +312,8 @@ class InferenceNode(LifecycleNode):
 
         resemotenet = ResEmoteNet().to(self.device)
         checkpoint = torch.load(self.resemotenet_path, weights_only=False)
-        resemotenet.load_state_dict(checkpoint["model_state_dict"])
+        # BS64 is a bare state dict, affectnet7_model.pth wraps it.
+        resemotenet.load_state_dict(checkpoint.get("model_state_dict", checkpoint))
         resemotenet.eval()
         self.logger.info("ResEmoteNet model loaded successfully")
 
@@ -614,7 +617,9 @@ class InferenceNode(LifecycleNode):
         emotion_probabilities = None
         if full and visitor.face is not None:
             models.mivolo.predict(img, detections)
-            x1, y1, x2, y2 = faces[visitor.face]
+            x1, y1, x2, y2 = emotion_crop(
+                faces[visitor.face], self._double("emotion_margin"), (width, height)
+            )
             if x2 > x1 and y2 > y1:
                 emotion_probabilities = self._predict_emotion(
                     models.resemotenet, img[y1:y2, x1:x2]
@@ -674,8 +679,10 @@ class InferenceNode(LifecycleNode):
                     )
                 probabilities = analysis.emotion_probabilities
                 if probabilities is not None:
-                    best = int(np.argmax(probabilities))
-                    text += f" {self.EMOTIONS[best]} {probabilities[best]:.2f}"
+                    top = np.argsort(probabilities)[::-1][:3]
+                    text += " " + ", ".join(
+                        f"{self.EMOTIONS[k]} {probabilities[k]:.2f}" for k in top
+                    )
             labels.append(text)
 
         status = f"{len(analysis.persons)} person(s)"
@@ -714,16 +721,16 @@ class InferenceNode(LifecycleNode):
         msg.data.frombytes(jpeg.tobytes())
         publisher.publish(msg)
 
-    # Class order of our affectnet7_model.pth, measured: 43.6% on balanced AffectNet
-    # val, upstream's order 11.1%. The benchmark is in git history before b4b73bd.
+    # Class order of ResEmoteNetBS64.pth, the best fit in benchmark/ (60.1% on balanced
+    # AffectNet val). affectnet7_model.pth has another; measure any new checkpoint.
     EMOTIONS: ClassVar[tuple[str, ...]] = (
-        "neutral",
         "happiness",
-        "sadness",
         "surprise",
-        "fear",
-        "disgust",
+        "sadness",
         "anger",
+        "disgust",
+        "fear",
+        "neutral",
     )
 
     def _predict_emotion(self, resemotenet: ResEmoteNet, face_roi) -> tuple[float, ...]:
