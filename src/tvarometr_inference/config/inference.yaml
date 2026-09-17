@@ -12,7 +12,7 @@ inference_node:
     # Any single model can come from elsewhere, e.g. to try a new checkpoint.
     # detector_path: /opt/tvarometr/models/yolov8x_person_face.pt
     # mivolo_path: /opt/tvarometr/models/model_imdb_cross_person_4.22_99.46.pth.tar
-    # resemotenet_path: /opt/tvarometr/models/ResEmoteNetBS64.pth
+    # hsemotion_path: /opt/tvarometr/models/enet_b2_7.pt
 
     # The camera node's JPEGs; only the frames the node analyses get decoded.
     image_topic: /image_raw/compressed

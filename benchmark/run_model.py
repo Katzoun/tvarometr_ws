@@ -59,7 +59,26 @@ class ResEmoteNetAdapter:
         return probabilities.cpu().numpy().flatten()
 
 
-ADAPTERS = {"resemotenet": ResEmoteNetAdapter}
+class HSEmotionAdapter:
+    """HSEmotion's enet_b2_7, a whole pickled timm model, loaded the way the node loads it."""
+
+    name = "hsemotion"
+    num_classes = 7
+
+    def __init__(self, weights, device, vendor_dir):
+        self.device = device
+        self.model = torch.load(weights, map_location=device, weights_only=False).eval()
+        # hsemotion's own transform for the b2 models: RGB at 260 px.
+        self.transform = transforms.Compose([
+            transforms.Resize((260, 260)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
+
+    predict = ResEmoteNetAdapter.predict
+
+
+ADAPTERS = {"resemotenet": ResEmoteNetAdapter, "hsemotion": HSEmotionAdapter}
 
 
 def face_crop(detector, image, crop, margin):
@@ -117,7 +136,7 @@ def main():
 
     detector = None
     if args.crop != "full":
-        # The adapter has already put the vendor dir on sys.path.
+        sys.path.insert(0, str(args.vendor_dir))
         from mivolo.model.yolo_detector import Detector
         detector = Detector(args.detector, device)
 

@@ -3,8 +3,8 @@
 Compares emotion models on identical inputs, outside ROS.
 
     python3 fetch_subset.py                                     # rebuild the test set from subset.csv
-    python3 run_model.py --out results/<name>.csv [--weights <path>] [--crop square --margin 0.2]
-    python3 score.py results/<name>.csv [--order resemotenet_upstream]
+    python3 run_model.py --out results/<name>.csv [--model hsemotion --weights <path>] [--crop square --margin 0.2]
+    python3 score.py results/<name>.csv [--order resemotenet_upstream|alphabetical]
 
 Run it from `/workspace/benchmark` in the inference dev container, which has torch,
 the vendored model code and the weights.
@@ -17,6 +17,9 @@ The HF checkpoints are `neilchouGTX/ResEmoteNet_Four_datasets_BatchSize<N>`:
 
     curl -L --create-dirs -o weights/ResEmoteNetBS64.pth \
       https://huggingface.co/neilchouGTX/ResEmoteNet_Four_datasets_BatchSize64/resolve/main/ResEmoteNetBS64.pth
+
+HSEmotion's `enet_b2_7.pt` (sb-ai-lab/EmotiEffLib, Apache-2.0) is in `models/`; its
+classes are in alphabetical order.
 
 `run_model.py` writes scores by output index and never names them. Naming happens
 in `score.py`, which also checks the claimed order against the best fitting one -
