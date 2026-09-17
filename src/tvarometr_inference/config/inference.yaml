@@ -18,7 +18,7 @@ inference_node:
     image_topic: /image_raw/compressed
 
     # The visitor is the widest person near the axis; anyone narrower is too far.
-    min_person_width_px: 300
+    min_person_width_px: 650
     # Axis over the floor mark as a fraction of the width; axis_falloff away counts
     # half, 0.0 ignores it. Keep the decimal points, or the node will not start.
     axis_x: 0.5

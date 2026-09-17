@@ -111,7 +111,7 @@ class InferenceNode(LifecycleNode):
         self.declare_parameter("device", "cpu")
         self.declare_parameter("image_topic", "/image_raw/compressed")
         # Read on every frame, so `ros2 param set` tunes them live.
-        self.declare_parameter("min_person_width_px", 300)
+        self.declare_parameter("min_person_width_px", 650)
         self.declare_parameter("ambiguity_ratio", 0.8)
         self.declare_parameter("axis_x", 0.5)
         self.declare_parameter("axis_falloff", 0.25)
