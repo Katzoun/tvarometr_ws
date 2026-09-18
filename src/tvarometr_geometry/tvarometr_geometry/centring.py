@@ -1,7 +1,8 @@
 """Where the camera goes next to put the visitor's face at the target height.
 
 A face is about `face_height_m` tall, which turns pixels into metres. With no
-face in view the camera steps blindly: towards the top of the body box, or down.
+face in view the camera steps blindly: towards the top of the body box, or, with
+nobody in the frame at all, one sweep step in the direction the node is searching.
 """
 
 from dataclasses import dataclass
@@ -23,13 +24,14 @@ class Centring:
     tolerance: float  # how far off that may be, same units
     gain: float  # how much of the error one step corrects
     max_step: float  # metres, the longest single move
+    search_step: float  # metres, one step of the sweep for somebody out of frame
     min_z: float
     max_z: float
     face_height_m: float
 
     def nudge(self, z, direction) -> Step:
-        """One blind step, up (+1) or down (-1), for when nobody is in the frame."""
-        return self._clamped(z, direction * self.max_step, error_px=0.0)
+        """One sweep step, up (+1) or down (-1), for when nobody is in the frame."""
+        return self._clamped(z, direction * self.search_step, error_px=0.0)
 
     def blind_step(self, z, person_top_y, image_height):
         """One step towards the top of the visitor's body box, where their head is.

@@ -15,10 +15,14 @@
     # Share of the error corrected per step, and the longest step in metres.
     gain: 0.7
     max_step: 0.1
+    # With nobody in the frame the camera sweeps down, then up, in steps this long.
+    # The camera sees about 0.7 m of height, so 0.3 m skips nobody.
+    search_step: 0.3
 
     # Give up after this many steps, seconds, or useless detections in a row.
     max_steps: 15
-    timeout_s: 30.0
+    # A full sweep is five slow moves, so 30 s ran out before it finished.
+    timeout_s: 60.0
     max_lost_detections: 3
     # Includes the detector's wait for a frame taken after the robot stopped.
     detect_timeout_s: 5.0

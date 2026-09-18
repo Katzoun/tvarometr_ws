@@ -1,4 +1,4 @@
-"""Picking the visitor out of a crowd by how wide they are and where they stand."""
+"""Picking the visitor out of a crowd: the nearest face, or the widest body."""
 
 import pytest
 
@@ -12,10 +12,27 @@ def person(width, centre_x=500, top=100, bottom=900):
     return (x1, top, x1 + width, bottom)
 
 
-def select(persons, face_of_person=None, min_width_px=200, **overrides):
+def face(height, centre_x=500, top=150):
+    return (centre_x - height // 2, top, centre_x + height // 2, top + height)
+
+
+def select(
+    persons,
+    faces=None,
+    face_of_person=None,
+    min_face_height_px=100,
+    min_width_px=200,
+    **overrides,
+):
     settings = {"ambiguity_ratio": 0.8, "axis_x": 0.5, "axis_falloff": 0.0}
     return select_visitor(
-        persons, face_of_person or {}, WIDTH, min_width_px, **{**settings, **overrides}
+        persons,
+        faces or [],
+        face_of_person or {},
+        WIDTH,
+        min_face_height_px,
+        min_width_px,
+        **{**settings, **overrides},
     )
 
 
@@ -62,16 +79,79 @@ def test_a_rejected_person_does_not_make_it_ambiguous():
 
 
 def test_the_visitors_face_comes_with_them():
-    result = select([person(300), person(500)], face_of_person={0: 7, 1: 3})
+    # Both faces are too small to decide, so width picks the visitor and the face
+    # comes along.
+    result = select(
+        [person(300), person(500)],
+        faces=[face(40), face(50)],
+        face_of_person={0: 0, 1: 1},
+    )
     assert result.person == 1
-    assert result.face == 3
+    assert result.face == 1
 
 
 def test_a_visitor_whose_face_is_out_of_frame_is_still_the_visitor():
     # Only the bystander has a face; the visitor's head is above the frame.
-    result = select([person(500, top=0), person(250)], face_of_person={1: 0})
+    result = select(
+        [person(500, top=0), person(250)], faces=[face(40)], face_of_person={1: 0}
+    )
     assert result.person == 0
     assert result.face is None
+
+
+def test_the_tallest_face_wins_over_a_wider_body():
+    # A child at the mark against an adult further back: the child's head is bigger
+    # on screen, their body is not.
+    child, adult = person(450, centre_x=400), person(520, centre_x=600)
+    result = select(
+        [child, adult],
+        faces=[face(300, centre_x=400), face(150, centre_x=600)],
+        face_of_person={0: 0, 1: 1},
+    )
+    assert result.person == 0
+    assert result.by_face
+    assert result.too_far == ()
+
+
+def test_a_face_too_small_to_count_leaves_its_person_too_far():
+    result = select(
+        [person(450), person(520, centre_x=700)],
+        faces=[face(300), face(80, centre_x=700)],
+        face_of_person={0: 0, 1: 1},
+    )
+    assert result.person == 0
+    assert result.too_far == (1,)
+
+
+def test_bodies_decide_while_no_face_is_tall_enough():
+    result = select(
+        [person(300), person(500)], faces=[face(50)], face_of_person={0: 0}
+    )
+    assert result.person == 1
+    assert not result.by_face
+
+
+def test_a_small_face_close_up_still_beats_a_distant_body():
+    # Nobody's face counts, so the fallback runs and the child at the mark wins.
+    result = select(
+        [person(430), person(250, centre_x=800)],
+        faces=[face(90)],
+        face_of_person={0: 0},
+        min_width_px=400,
+    )
+    assert result.person == 0
+    assert result.too_far == (1,)
+
+
+def test_nobody_counts_when_every_face_and_body_is_small():
+    result = select(
+        [person(150), person(180, centre_x=700)],
+        faces=[face(60)],
+        face_of_person={0: 0},
+    )
+    assert result.person is None
+    assert result.face is None
+    assert result.too_far == (0, 1)
 
 
 def test_weight_is_one_on_the_axis_and_halves_at_the_falloff():

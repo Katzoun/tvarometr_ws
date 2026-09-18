@@ -17,8 +17,12 @@ inference_node:
     # The camera node's JPEGs; only the frames the node analyses get decoded.
     image_topic: /image_raw/compressed
 
-    # The visitor is the widest person near the axis; anyone narrower is too far.
-    min_person_width_px: 650
+    # The visitor is the nearest face near the axis. A face this tall means somebody
+    # stands at the mark, and a head barely differs between a child and an adult.
+    min_face_height_px: 200
+    # Fallback while no face is tall enough: the widest body near the axis. Low
+    # enough for a child at the mark, who is about a third narrower than an adult.
+    min_person_width_px: 500
     # Axis over the floor mark as a fraction of the width; axis_falloff away counts
     # half, 0.0 ignores it. Keep the decimal points, or the node will not start.
     axis_x: 0.5

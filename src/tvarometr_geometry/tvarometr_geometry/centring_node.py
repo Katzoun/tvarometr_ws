@@ -42,6 +42,9 @@ class CentringNode(Node):
         # Below 1, so an error in the pixel scale undershoots instead of oscillating.
         self.declare_parameter("gain", 0.7)
         self.declare_parameter("max_step", 0.08)
+        # Nobody in the frame: sweep in steps this long. Shorter than what the camera
+        # sees vertically, or the sweep jumps over somebody.
+        self.declare_parameter("search_step", 0.3)
         self.declare_parameter("max_steps", 15)
         self.declare_parameter("timeout_s", 30.0)
         # A face is about this tall, which is what turns pixels into metres.
@@ -126,6 +129,7 @@ class CentringNode(Node):
             tolerance=self._double("tolerance"),
             gain=self._double("gain"),
             max_step=self._double("max_step"),
+            search_step=self._double("search_step"),
             min_z=self._double("min_z"),
             max_z=self._double("max_z"),
             face_height_m=self._double("face_height_m"),
@@ -138,6 +142,9 @@ class CentringNode(Node):
         # The robot already stands at the photo pose, so any frame from now counts.
         not_before = self.get_clock().now().to_msg()
         lost = 0
+        # Down first: somebody too tall for the frame still shows their body, while a
+        # child can be below it entirely. The sweep turns around at the first limit.
+        search = -1
 
         for step_number in range(1, max_steps + 1):
             if goal_handle.is_cancel_requested:
@@ -158,8 +165,8 @@ class CentringNode(Node):
                 continue
 
             if not answer.success:
-                # Nobody in the frame: the camera looks over everyone, so feel downwards.
-                step, state = tuning.nudge(z, -1), "searching"
+                # Nobody in the frame: sweep for somebody the camera looks past.
+                step, state = tuning.nudge(z, search), "searching"
             elif answer.face_bbox.height == 0:
                 # Their face is not in view, so steer by the top of them instead.
                 blind = tuning.blind_step(
@@ -210,6 +217,10 @@ class CentringNode(Node):
                 not_before = self.get_clock().now().to_msg()
 
             if step.at_limit:
+                if state == "searching" and search < 0:
+                    # One end of the sweep done; try the other way before giving up.
+                    search = 1
+                    continue
                 if state in ("searching", "looking for the face"):
                     # Nowhere left to go and still no face to analyse.
                     return self._failed(

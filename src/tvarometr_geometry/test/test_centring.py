@@ -15,6 +15,7 @@ def centring(**overrides):
         "tolerance": 0.05,
         "gain": 0.7,
         "max_step": 0.08,
+        "search_step": 0.3,
         "min_z": 0.8,
         "max_z": 1.6,
         "face_height_m": 0.22,
@@ -105,3 +106,17 @@ def test_a_blind_step_stops_at_the_limit():
     result = blind(z=1.57, person_top_y=0)
     assert result.z == 1.6
     assert result.at_limit
+
+
+def test_a_sweep_step_is_the_search_step_long():
+    result = centring().nudge(1.2, -1)
+    assert result.z == pytest.approx(1.2 - 0.3)
+    assert result.error_px == 0
+    assert not result.centred
+
+
+def test_a_sweep_stops_at_whichever_limit_it_reaches():
+    assert centring().nudge(1.0, -1).z == 0.8
+    assert centring().nudge(1.0, -1).at_limit
+    assert centring().nudge(1.5, 1).z == 1.6
+    assert centring().nudge(1.5, 1).at_limit

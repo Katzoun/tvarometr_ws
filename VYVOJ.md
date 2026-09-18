@@ -70,9 +70,10 @@ ros2 action send_goal -f /inference_node/run_inference tvarometr_interfaces/acti
 Samotnou kameru pustíš přes `camera.launch.py`. Nastavení je v
 `src/tvarometr_inference/config/`, po úpravě restartuj launch:
 
-- `inference.yaml`: výběr návštěvníka (`min_person_width_px`, `axis_x`,
-  `axis_falloff`, za běhu `ros2 param set /inference_node axis_x 0.45`)
-  a průměrování (`samples`, `min_samples`, `sample_timeout_s`)
+- `inference.yaml`: výběr návštěvníka (`min_face_height_px`,
+  `min_person_width_px`, `axis_x`, `axis_falloff`, za běhu
+  `ros2 param set /inference_node axis_x 0.45`) a průměrování (`samples`,
+  `min_samples`, `sample_timeout_s`)
 - `camera.yaml`: rozlišení a fps podle `v4l2-ctl -d /dev/video0 --list-formats-ext`
 - `camera_controls.yaml`: expozice, ostření, vyvážení bílé
 

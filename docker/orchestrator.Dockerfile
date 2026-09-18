@@ -15,10 +15,11 @@ RUN sed -i \
     -e 's|http://security.ubuntu.com|http://cz.archive.ubuntu.com|g' \
     /etc/apt/sources.list
 
-# clangd for the editor, gdb for the debugger.
+# clangd for the editor, gdb for the debugger, git-lfs for the weights in models/.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         clangd \
         gdb \
+        git-lfs \
         python3-colcon-common-extensions \
     && rm -rf /var/lib/apt/lists/*
 

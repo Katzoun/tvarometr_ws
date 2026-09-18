@@ -60,7 +60,8 @@ Python, plain nodes (nothing to load).
   - A face is about `face_height_m` tall, which turns pixels into metres; a step
     corrects `gain` of the error, up to `max_step`.
   - With no face in view it steps blindly towards the top of the visitor's body
-    box, or down when nobody is in view. A turned-away head is waited out.
+    box. With nobody in view at all it sweeps in `search_step` steps, down first
+    and up after the lower limit. A turned-away head is waited out.
   - Success when the face is within `tolerance` of `target_y`, or at a Z limit with
     the face in view (`at_limit`). Failure at a limit without a face, out of steps
     or time, or after `max_lost_detections` useless answers.
@@ -79,13 +80,16 @@ Python, plain nodes (nothing to load).
     Fewer than `min_samples` by `sample_timeout_s` fails.
   - `detect_face` (service) answers from the latest frame taken after `not_before`:
     where the visitor stands and where their face is.
-  - The **visitor** is the widest person near `axis_x`, the line over the floor
-    mark; `axis_falloff` away counts half, narrower than `min_person_width_px` not
-    at all. Width, because somebody close is cut off at the top or bottom long
-    before they are narrow. No memory between frames.
+  - The **visitor** is the one with the tallest face near `axis_x`, the line over
+    the floor mark; `axis_falloff` away counts half, a face shorter than
+    `min_face_height_px` not at all. Face height, because it says how far somebody
+    stands whatever their size, while a child close up is as wide as an adult far
+    away. While no face is that tall, the widest body over `min_person_width_px`
+    wins instead. No memory between frames.
   - `scene_image/compressed` (for the TV) shows plain boxes, the visitor green;
-    `debug_image/compressed` adds widths, weights, attributes and the axis. Both are
-    JPEG, sent only while watched.
+    `debug_image/compressed` adds every number the rules decide on - body width,
+    face height, axis weight, which rule won and its thresholds - plus attributes
+    and the axis. Both are JPEG, sent only while watched.
 
 Weights are in `models/` (Git LFS), mounted at `/opt/tvarometr/models`:
 `yolov8x_person_face.pt` (detection), `model_imdb_cross_person_4.22_99.46.pth.tar`

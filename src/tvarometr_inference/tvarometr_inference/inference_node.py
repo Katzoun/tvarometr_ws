@@ -67,6 +67,7 @@ class FrameAnalysis:
     faces: list[tuple[int, int, int, int]]
     person_inds: list[int]  # the detector's own index for each person box
     face_inds: list[int]  # and for each face box
+    face_of_person: dict[int, int]  # person box index to face box index
     visitor: Visitor
     detections: PersonAndFaceResult
     # The visitor's emotion, one probability per label; full pass only.
@@ -111,7 +112,10 @@ class InferenceNode(LifecycleNode):
         self.declare_parameter("device", "cpu")
         self.declare_parameter("image_topic", "/image_raw/compressed")
         # Read on every frame, so `ros2 param set` tunes them live.
-        self.declare_parameter("min_person_width_px", 650)
+        # A face this tall means somebody stands at the mark; their body's width is
+        # the fallback while no face is in view, and a child is narrower than an adult.
+        self.declare_parameter("min_face_height_px", 200)
+        self.declare_parameter("min_person_width_px", 500)
         self.declare_parameter("ambiguity_ratio", 0.8)
         self.declare_parameter("axis_x", 0.5)
         self.declare_parameter("axis_falloff", 0.25)
@@ -600,11 +604,11 @@ class InferenceNode(LifecycleNode):
         )
         visitor = select_visitor(
             persons,
+            faces,
             face_of_person,
             width,
-            self.get_parameter("min_person_width_px")
-            .get_parameter_value()
-            .integer_value,
+            self._int("min_face_height_px"),
+            self._int("min_person_width_px"),
             self.get_parameter("ambiguity_ratio").get_parameter_value().double_value,
             axis_x,
             axis_falloff,
@@ -626,6 +630,7 @@ class InferenceNode(LifecycleNode):
             faces,
             person_inds,
             face_inds,
+            face_of_person,
             visitor,
             detections,
             emotion_probabilities,
@@ -649,8 +654,8 @@ class InferenceNode(LifecycleNode):
         if not analysis.persons:
             return "Nobody detected"
         return (
-            f"{len(analysis.persons)} person(s) seen, none as wide as"
-            " min_person_width_px - nobody close enough"
+            f"{len(analysis.persons)} person(s) seen, no face as tall as"
+            " min_face_height_px and no body as wide as min_person_width_px"
         )
 
     def _publish_images(self, img, analysis, header):
@@ -664,7 +669,12 @@ class InferenceNode(LifecycleNode):
         visitor = analysis.visitor
         labels = []
         for k, (x1, y1, x2, y2) in enumerate(analysis.persons):
-            text = f"w{x2 - x1} x{visitor.weights[k]:.2f}"
+            # Body width, their own face's height and the axis weight: what decided.
+            text = f"w{x2 - x1}"
+            own_face = analysis.face_of_person.get(k)
+            if own_face is not None:
+                text += f" f{analysis.faces[own_face][3] - analysis.faces[own_face][1]}"
+            text += f" x{visitor.weights[k]:.2f}"
             face = visitor.face if k == visitor.person else None
             if face is not None:
                 idx = analysis.face_inds[face]
@@ -681,7 +691,11 @@ class InferenceNode(LifecycleNode):
                     )
             labels.append(text)
 
-        status = f"{len(analysis.persons)} person(s)"
+        rule = "face" if visitor.by_face else "body"
+        status = (
+            f"{len(analysis.persons)} person(s) - {rule} rule, min "
+            f"f{self._int('min_face_height_px')} w{self._int('min_person_width_px')}"
+        )
         if visitor.person is None:
             if analysis.persons:
                 status += " - nobody close enough"
