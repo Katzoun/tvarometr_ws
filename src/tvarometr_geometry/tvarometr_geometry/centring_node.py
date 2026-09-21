@@ -34,8 +34,8 @@ class CentringNode(Node):
         self.declare_parameter("peer_timeout_s", 5.0)
 
         # In the goal's wobj; no default fits a cell.
-        self.declare_parameter("min_z", 0.8)
-        self.declare_parameter("max_z", 1.6)
+        self.declare_parameter("min_z", 0.2)
+        self.declare_parameter("max_z", 1.3)
         # Fractions of the image height.
         self.declare_parameter("target_y", 0.4)
         self.declare_parameter("tolerance", 0.05)

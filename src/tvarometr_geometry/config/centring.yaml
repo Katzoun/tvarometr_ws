@@ -4,7 +4,7 @@
     motion_action: /robot_controller/robot_robtarget_move
 
     # Camera Z limits in the goal's wobj, metres; a photo pose outside is refused.
-    min_z: 0.5
+    min_z: 0.2
     max_z: 1.3
 
     # Where the face centre belongs and how far off still counts as centred, as
