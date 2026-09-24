@@ -48,7 +48,8 @@ def test_all_paths_and_bounds_use_metres():
     paths = generate_trajectories("32\nmuž\nšťastný", values_width=600, pen_up=35)
     assert paths["units"] == "m"
     left, _, right, _ = paths["values_bounds"]
-    assert right - left == pytest.approx(0.6)
+    # Metres: the sweep is as wide as the values, never wider than values_width.
+    assert 0 < right - left <= 0.6
     for name in ("labels", "values", "erase"):
         assert paths[name][0][2] == paths[name][-1][2] == pytest.approx(0.035)
 
@@ -109,13 +110,15 @@ def test_invalid_geometry_is_rejected(parameter, value):
         generate_path("A", **{parameter: value})
 
 
-def test_all_paths_have_fixed_layout_independent_of_values():
+def test_labels_stay_fixed_while_the_sweep_follows_the_values():
     long_text = generate_trajectories("100\nžena\nznechucená", max_segment_length=15)
     short_text = generate_trajectories("8\nmuž\nklidný", max_segment_length=15)
     assert long_text.keys() == {"units", "labels", "values", "erase", "values_bounds"}
-    for key in ("labels", "erase", "values_bounds"):
-        assert long_text[key] == short_text[key]
+    assert long_text["labels"] == short_text["labels"]
     assert long_text["values"] != short_text["values"]
+    # Only the far edge moves; the column still starts where the labels end.
+    assert long_text["values_bounds"][0] == short_text["values_bounds"][0]
+    assert long_text["values_bounds"][2] > short_text["values_bounds"][2]
     for key in ("labels", "values", "erase"):
         points = long_text[key]
         assert points[0][2] == points[-1][2] == 0.020
@@ -145,16 +148,26 @@ def test_eraser_covers_values_and_its_full_width_clears_labels():
     assert all(b - a <= diameter / 2 + 1e-9 for a, b in itertools.pairwise(sweep_y))
 
 
+def test_the_eraser_sweeps_the_whole_region_twice():
+    erase = generate_trajectories("32\nmuž\nšťastný")["erase"]
+    half = len(erase) // 2
+    assert erase[:half] == erase[half:]
+    # Lifted at the end of the first pass and at the start of the second.
+    assert erase[half - 1][2] == erase[half][2] == 0.020
+
+
 def test_empty_values_still_erase_entire_previous_region():
-    empty = generate_trajectories("\n\n")
+    empty = generate_trajectories("\n\n", values_width=600)
     assert empty["values"] == []
-    assert empty["erase"] == generate_trajectories("35\nmuž\nšťastný")["erase"]
+    # No ink to measure, so the sweep falls back to the whole column.
+    left, _, right, _ = empty["values_bounds"]
+    assert right - left == pytest.approx(0.600)
 
 
 def test_default_example_uses_hundreds_of_points_and_keeps_erase_turns():
     paths = generate_trajectories("32\nmuž\nšťastný")
     assert sum(len(paths[name]) for name in ("labels", "values", "erase")) < 800
-    assert len(paths["erase"]) < 100
+    assert len(paths["erase"]) < 200  # two passes over the same sweep
     left, _, right, _ = paths["values_bounds"]
     contact = [point for point in paths["erase"] if point[2] == 0]
     assert all(x in (left, right) for x, _, _ in contact)

@@ -208,7 +208,7 @@ def generate_trajectories(
         max(p[0] for p in labels)
         + (curve_tolerance + label_gap + eraser_width / 2) * MM_TO_M
     )
-    right = left + values_width * MM_TO_M
+    limit = left + values_width * MM_TO_M
     # Use the entire bundled font's vertical bounds, including diacritics and
     # descenders, so previous values are erased even when new ones are shorter.
     font_file = Path(__file__).with_name("fonts") / "ReliefSingleLineSVG-Regular.svg"
@@ -220,10 +220,18 @@ def generate_trajectories(
     bottom = min_y * scale - 2 * letter_height * line_spacing * MM_TO_M
     top = max_y * scale
     value_points = [(x + left, y, z) for x, y, z in value_points]
-    if any(not (left <= x <= right and bottom <= y <= top) for x, y, _ in value_points):
+    if any(not (left <= x <= limit and bottom <= y <= top) for x, y, _ in value_points):
         raise ValueError(
             "Values exceed the fixed writing area; increase values_width or reduce letter_height"
         )
+    # The sweep ends at the last of the ink, so a short value does not drag the
+    # eraser over empty board. With nothing written it clears the whole column,
+    # the only way left to reach what an earlier run put there.
+    right = (
+        min(max(p[0] for p in value_points) + curve_tolerance * MM_TO_M, limit)
+        if value_points
+        else limit
+    )
 
     rows = max(1, math.ceil((top - bottom) / (eraser_width * MM_TO_M / 2)))
     corners = []
@@ -242,6 +250,9 @@ def generate_trajectories(
         )
         erase.append((x1, y1, 0.0))
     erase.append((*corners[-1], pen_up_m))
+    # The whole sweep runs twice. Between the passes the eraser rides back over
+    # the first corner at pen_up, so it touches nothing on the way.
+    erase = erase * 2
     return {
         "units": "m",
         "labels": labels,

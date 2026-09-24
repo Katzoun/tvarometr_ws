@@ -30,12 +30,15 @@ class TrajectoryNode(Node):
         self.logger = self.get_logger()
 
         # Millimetres, like the generator's inputs. Its output is metres.
-        self.declare_parameter("letter_height", 60.0)
-        self.declare_parameter("letter_spacing", 10.0)
+        # Labels, gap and values together stay within 700 mm of board: at this
+        # height "Pohlaví:" is 244 mm wide and the widest value, "znechucený",
+        # 367 mm. Raising either of the first two needs values_width lowered.
+        self.declare_parameter("letter_height", 40.0)
+        self.declare_parameter("letter_spacing", 4.0)
         self.declare_parameter("space_factor", 1.3)
         self.declare_parameter("line_spacing", 1.5)
         # Both decide where the eraser sweeps, so a wrong value wipes over text.
-        self.declare_parameter("values_width", 600.0)
+        self.declare_parameter("values_width", 380.0)
         self.declare_parameter("eraser_width", 120.0)
         self.declare_parameter("label_gap", 10.0)
 

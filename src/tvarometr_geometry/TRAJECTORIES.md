@@ -18,13 +18,15 @@ Input: three lines containing age, gender and mood. Output:
 | `units` | `"m"` |
 | `labels` | Fixed board text: Věk, Pohlaví, Nálada |
 | `values` | Input values in the right column |
-| `erase` | Overlapping sweeps over the fixed values area |
-| `values_bounds` | `[xmin, ymin, xmax, ymax]` in metres |
+| `erase` | Overlapping sweeps over the written part of the values area, run twice |
+| `values_bounds` | `[xmin, ymin, xmax, ymax]` of the erased region, in metres |
 
 Input lengths remain in **mm**. Output points and bounds use **metres**.
 Points are `[x, y, z]`: X right, Y up, first baseline Y=0.
 Z=0 means contact; Z=0.020 means lifted. Each path starts and ends lifted.
 Use `labels` + `values` initially, then `erase` and new `values`.
+`erase` reaches only as far as the values it was generated with, so it clears
+what the same call drew; pass empty values to sweep the whole column.
 Cycle state, tool changes and robot coordinates belong to the caller.
 
 Keep layout parameters constant across cycles. Oversized text is rejected.
@@ -51,7 +53,7 @@ including erasing. No length cap is applied by default. `spacing` controls
 character spacing, not waypoint spacing. The CLI prints counts for each path.
 
 At 60 mm letter height, `32 / muž / šťastný` uses 347 label points, 249 value
-points and 62 erase points (658 total). Longer text requires more points;
+points and 124 erase points (720 total). Longer text requires more points;
 there is no hard point-count limit.
 
 ## View
