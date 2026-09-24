@@ -161,6 +161,12 @@ during a build, `source /opt/colcon_ws/install/setup.bash`.
 
 ## Running the system
 
+For a run, `./start.sh` brings up the production stack - source and weights
+inside the images, nothing mounted, nothing built on the machine that runs it -
+and prints the one command left to start the tree by hand. That stack is
+`docker-compose.yml`; the rest of this section is the development path over the
+bind mount.
+
 In this order; all containers share the host network and `ROS_DOMAIN_ID`.
 
 ### 1. Robot driver - host
@@ -226,9 +232,11 @@ Colcon writes to `/opt/colcon_ws` inside the container, gone after a rebuild;
 
 | File | Role |
 | --- | --- |
-| `docker/*.Dockerfile` | Dependencies only - no source, models or build. |
+| `docker/{orchestrator,inference}.Dockerfile` | Dependencies only - no source, models or build. |
+| `docker/*-prod.Dockerfile` | The same, plus the source, weights and build. |
 | `docker/requirements-*.txt` | Python pins. |
 | `docker-compose.dev.yml` | Mounts, GPU, camera, network, profiles. |
+| `docker-compose.yml`, `start.sh` | The run: production containers, no source mounted. |
 | `.devcontainer/*/` | Which service VS Code attaches to, build on create. |
 | `dependencies.repos` | Driver and behaviortree_ros2, for `vcs import`. |
 | `docker/colcon-defaults-*.yaml` | Colcon paths and packages per container. |

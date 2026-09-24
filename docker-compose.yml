@@ -1,0 +1,78 @@
+# The run in production containers: source and weights live in the images, so
+# nothing of the repo is mounted and nothing is built on the machine that runs
+# it. `./start.sh` brings it up. The development stack over a bind mount, with
+# the editor and colcon inside, is docker-compose.dev.yml.
+#
+# Its own project name, so the two stacks never recreate each other's
+# containers. They still must not run at the same time - they share
+# ROS_DOMAIN_ID, and two of the same node answer the same request. `./start.sh`
+# refuses to start while the development containers are up.
+#
+# The tree is not a service: it reads the keyboard, so it is started attached
+# once the rest is up. `./start.sh` prints the command.
+
+name: tvarometr_prod
+
+services:
+  orchestrator:
+    build:
+      context: .
+      dockerfile: docker/orchestrator-prod.Dockerfile
+    image: tvarometr/orchestrator:prod
+    container_name: tvarometr_orchestrator_prod
+    network_mode: host
+    # Fast DDS talks over shared memory; with a private /dev/shm other nodes
+    # discover this one but no messages arrive.
+    ipc: host
+    restart: unless-stopped
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-42}
+      RMW_IMPLEMENTATION: rmw_fastrtps_cpp
+      PYTHONUNBUFFERED: "1"
+
+  inference:
+    build:
+      context: .
+      dockerfile: docker/inference-prod.Dockerfile
+    image: tvarometr/inference:prod
+    container_name: tvarometr_inference_prod
+    network_mode: host
+    ipc: host
+    restart: unless-stopped
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-42}
+      RMW_IMPLEMENTATION: rmw_fastrtps_cpp
+      PYTHONUNBUFFERED: "1"
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      DISPLAY: ${DISPLAY:-:0}
+    volumes:
+      # rqt_image_view draws on the host display. Host networking does not carry
+      # X: it listens on a unix socket only, so the socket itself has to be
+      # here. The host still has to allow it: `xhost +SI:localuser:root`.
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+    devices:
+      # No webcam: set CAMERA_DEVICE=/dev/null and the camera node fails alone.
+      - ${CAMERA_DEVICE:-/dev/video0}:/dev/video0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  driver:
+    # The driver's own production image, on the source `vcs import` put in place.
+    build:
+      context: ./src/abb_rws2_ros2_driver
+      dockerfile: docker/prod.Dockerfile
+    image: abb_rws2_ros2_driver:prod
+    container_name: abb_rws2_ros2_driver_prod
+    network_mode: host
+    ipc: host
+    restart: unless-stopped
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-42}
+      RMW_IMPLEMENTATION: rmw_fastrtps_cpp
+      PYTHONUNBUFFERED: "1"

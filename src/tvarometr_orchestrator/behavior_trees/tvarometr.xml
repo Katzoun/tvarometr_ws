@@ -92,6 +92,19 @@
                   </Fallback>
                 </RetryUntilSuccessful>
 
+                <!-- Over to the board joint-wise, via the photo pose: the draw paths
+                     below open with a MoveL, which from here cuts across the cell.
+                     The two board poses as RobotStudio gives them, [x,y,z] and ABB's
+                     [q1,q2,q3,q4] = [w,x,y,z]:
+                       [0.563772,-0.16076,0.671067],[0,-0.707106781,-0.707106781,0]
+                       [0.932796,0.100442,0.883665],[0,-0.707106781,-0.707106781,0]
+                     This port reads a ROS quaternion, so q1 moves to the end. One
+                     goal carries one frame: all three poses are tool0/wobj0. -->
+                <ExecutePath name="ApproachBoard"
+                             path="-0.12,-0.9,0.9,1,0,0,0;0.563772,-0.16076,0.671067,-0.707106781,-0.707106781,0,0;0.932796,0.100442,0.883665,-0.707106781,-0.707106781,0,0"
+                             motion_command="MoveJ" speed="300"
+                             tool="tool0" wobj="wobj0"/>
+
                 <!-- All three paths at once; what gets drawn is decided below. -->
                 <GenerateTrajectories attributes="{attributes}"
                                       labels="{labels}"

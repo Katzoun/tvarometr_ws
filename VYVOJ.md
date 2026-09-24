@@ -27,6 +27,47 @@ Inference čeká webkameru na `/dev/video0`; jinou nebo žádnou nastavíš pře
 **Z hostitele vždycky piš název služby**, jinak se přestaví i orchestrátor a
 shodí otevřený devcontainer.
 
+## Ostrý běh
+
+Prod kontejnery mají zdroj i váhy uvnitř image: nic se nemountuje a na stroji,
+kde to jede, se nic nepřekládá. Dev kontejnery musí být zastavené - mluví na
+stejném `ROS_DOMAIN_ID` a uzly by si odpovídaly navzájem.
+
+```bash
+./start.sh --build   # poprvé a po každé změně zdroje
+./start.sh           # jen nastartovat
+./start.sh --stop
+```
+
+Skript zapne `orchestrator` (trajektorie a centrování), `inference` (kamera
+a sítě) a `driver`, počká až uzly naběhnou a vypíše příkaz pro strom. Nejdřív ale
+zkontroluje kameru: Docker kontejner bez ní nejdřív vytvoří a teprve pak ho
+odmítne spustit, a ta hláška se v jeho výpisu snadno přehlédne. Jinou kameru
+nebo běh bez ní:
+
+```bash
+CAMERA_DEVICE=/dev/video2 ./start.sh
+CAMERA_DEVICE=/dev/null ./start.sh     # všechno kromě kamery
+```
+
+Když některý kontejner po startu neběží, skript vypíše jeho stav a posledních
+dvacet řádků logu místo toho, aby čekal na uzly, které se nikdy neobjeví. Strom není
+službou, protože čte klávesnici:
+
+```bash
+docker exec -it tvarometr_orchestrator_prod /entrypoint.sh ros2 run tvarometr_orchestrator orchestrator_node
+```
+
+Lifecycle driveru i inference si strom udělá sám. Debug obraz jde pustit
+i z ostrého běhu, `DISPLAY` a X socket kontejner má:
+
+```bash
+docker exec -it tvarometr_inference_prod /entrypoint.sh \
+  ros2 run rqt_image_view rqt_image_view /inference_node/debug_image/compressed
+```
+
+Zbytek téhle stránky je vývojová cesta přes bind mount.
+
 ## Spuštění běhu
 
 1. **Driver** (hostitel), zapne ho až strom. Po úpravě `robot_control.yaml` příkaz zopakuj.
@@ -85,6 +126,7 @@ Samotnou kameru pustíš přes `camera.launch.py`. Nastavení je v
 | C++ | `MAKEFLAGS=-j2 colcon build --parallel-workers 1` a restart |
 | rozhraní, entry pointy, nové launch/config soubory | build v obou kontejnerech, `source /opt/colcon_ws/install/setup.bash` |
 | Dockerfile, requirements | *Dev Containers: Rebuild Container* |
+| cokoli, a chceš to v ostrém běhu | `./start.sh --build` |
 
 C++ build vždycky s tímhle omezením, jinak dojde RAM. Build je v `/opt/colcon_ws`
 v kontejneru a rebuild kontejneru ho smaže.
