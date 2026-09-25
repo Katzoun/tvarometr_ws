@@ -65,7 +65,7 @@
 
                 <!-- Metres and ROS quaternion in wobj0. Keep the same pose in CentreFace and
                      BackToPhotoPose: centring never reads where the arm really is. -->
-                <ExecutePath name="MoveToPhotoPose" path="-0.12,-0.9,0.9,1,0,0,0"
+                <ExecutePath name="MoveToPhotoPose" path="0.5,-0.9,0.9,1,0,0,0"
                              motion_command="MoveJ" speed="300"
                              tool="tool0" wobj="wobj0"/>
 
@@ -78,7 +78,7 @@
                 <RetryUntilSuccessful num_attempts="-1">
                   <Fallback>
                     <Sequence name="frame_and_analyse">
-                      <CentreFace photo_pose="-0.12,-0.9,0.9,1,0,0,0"
+                      <CentreFace photo_pose="0.5,-0.9,0.9,1,0,0,0"
                                   tool="tool0" wobj="wobj0"/>
                       <RunInference attributes="{attributes}"/>
                     </Sequence>
@@ -86,7 +86,7 @@
                     <ForceFailure>
                       <Sequence name="ask_for_a_retry">
                         <ExecutePath name="BackToPhotoPose"
-                                     path="-0.12,-0.9,0.9,1,0,0,0"
+                                     path="0.5,-0.9,0.9,1,0,0,0"
                                      motion_command="MoveL" speed="300"
                                      tool="tool0" wobj="wobj0"/>
                         <LogMessage message="No visitor analysed. C tries again, E aborts."/>
@@ -105,7 +105,7 @@
                      This port reads a ROS quaternion, so q1 moves to the end. One
                      goal carries one frame: all three poses are tool0/wobj0. -->
                 <ExecutePath name="ApproachBoard"
-                             path="-0.12,-0.9,0.9,1,0,0,0;0.563772,-0.16076,0.671067,-0.707106781,-0.707106781,0,0;0.932796,0.100442,0.883665,-0.707106781,-0.707106781,0,0"
+                             path="0.5,-0.9,0.9,1,0,0,0;0.563772,-0.16076,0.671067,-0.707106781,-0.707106781,0,0;0.932796,0.100442,0.883665,-0.707106781,-0.707106781,0,0"
                              motion_command="MoveJ" speed="300"
                              tool="tool0" wobj="wobj0"/>
 
