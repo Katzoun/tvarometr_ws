@@ -62,9 +62,17 @@ Lifecycle driveru i inference si strom udělá sám. Debug obraz jde pustit
 i z ostrého běhu, `DISPLAY` a X socket kontejner má:
 
 ```bash
-docker exec -it tvarometr_inference_prod /entrypoint.sh \
+docker exec -it -u $(id -u) -e HOME=/tmp -e FASTDDS_BUILTIN_TRANSPORTS=UDPv4 \
+  tvarometr_inference_prod /entrypoint.sh \
   ros2 run rqt_image_view rqt_image_view /inference_node/debug_image/compressed
 ```
+
+Každý přepínač tam má důvod. `-u $(id -u)` pustí rqt pod tvým účtem, protože
+kontejner jede jako root a toho X odmítne — tím odpadá `xhost +SI:localuser:root`
+po každém bootu. `HOME` musí ukázat někam, kam ten účet v kontejneru smí psát.
+A `FASTDDS_BUILTIN_TRANSPORTS=UDPv4` je nutný proto, že `/dev/shm/fastrtps_*`
+patří rootovi s právy 644 a Fast DDS do nich potřebuje zapisovat: bez něj se
+okno otevře, ale zůstane prázdné. `start.sh` ten příkaz vypisuje sám.
 
 Zbytek téhle stránky je vývojová cesta přes bind mount.
 

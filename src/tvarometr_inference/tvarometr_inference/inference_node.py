@@ -34,7 +34,7 @@ from mivolo.structures import PersonAndFaceResult
 from PIL import Image as PILImage
 from torchvision import transforms
 
-from tvarometr_inference.annotation import draw_debug, draw_scene
+from tvarometr_inference.annotation import draw_debug
 from tvarometr_inference.attribute_averaging import Sample, average, male_probability
 from tvarometr_inference.attributes import (
     build_face_attributes,
@@ -659,15 +659,18 @@ class InferenceNode(LifecycleNode):
         )
 
     def _publish_images(self, img, analysis, header):
-        """Both views of one analysis, each only if someone is watching."""
-        if self.scene_publisher.get_subscription_count() > 0:
-            scene = draw_scene(img, analysis.persons, analysis.faces, analysis.visitor)
-            self._publish_jpeg(self.scene_publisher, scene, header)
-        if self.debug_publisher.get_subscription_count() == 0:
+        """Both views of one analysis, each only if someone is watching.
+
+        The same drawing either way. The TV's copy stops at what decided the
+        choice; age, gender and mood belong to the debug view alone.
+        """
+        scene_watched = self.scene_publisher.get_subscription_count() > 0
+        debug_watched = self.debug_publisher.get_subscription_count() > 0
+        if not scene_watched and not debug_watched:
             return
 
         visitor = analysis.visitor
-        labels = []
+        labels, debug_labels = [], []
         for k, (x1, y1, x2, y2) in enumerate(analysis.persons):
             # Body width, their own face's height and the axis weight: what decided.
             text = f"w{x2 - x1}"
@@ -675,6 +678,7 @@ class InferenceNode(LifecycleNode):
             if own_face is not None:
                 text += f" f{analysis.faces[own_face][3] - analysis.faces[own_face][1]}"
             text += f" x{visitor.weights[k]:.2f}"
+            labels.append(text)
             face = visitor.face if k == visitor.person else None
             if face is not None:
                 idx = analysis.face_inds[face]
@@ -689,7 +693,7 @@ class InferenceNode(LifecycleNode):
                     text += " " + ", ".join(
                         f"{self.EMOTIONS[k]} {probabilities[k]:.2f}" for k in top
                     )
-            labels.append(text)
+            debug_labels.append(text)
 
         rule = "face" if visitor.by_face else "body"
         status = (
@@ -707,17 +711,22 @@ class InferenceNode(LifecycleNode):
         if self._samples is not None:
             status += " - COLLECTING"
 
-        annotated = draw_debug(
-            img,
-            analysis.persons,
-            analysis.faces,
-            labels,
-            visitor,
-            status,
-            analysis.axis_x,
-            analysis.axis_falloff,
-        )
-        self._publish_jpeg(self.debug_publisher, annotated, header)
+        def view(texts):
+            return draw_debug(
+                img,
+                analysis.persons,
+                analysis.faces,
+                texts,
+                visitor,
+                status,
+                analysis.axis_x,
+                analysis.axis_falloff,
+            )
+
+        if scene_watched:
+            self._publish_jpeg(self.scene_publisher, view(labels), header)
+        if debug_watched:
+            self._publish_jpeg(self.debug_publisher, view(debug_labels), header)
 
     def _publish_jpeg(self, publisher, image, header):
         ok, jpeg = cv2.imencode(

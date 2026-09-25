@@ -1,4 +1,4 @@
-"""Draws what the node saw onto the frame: labelled for debugging, plain for the TV."""
+"""Draws what the node saw onto the frame: boxes, the axis and a label each."""
 
 import cv2
 
@@ -41,18 +41,6 @@ def draw_axis(image, axis_x, axis_falloff, scale):
                 _dashed_vertical(
                     image, xs, AXIS, max(1, round(scale)), round(20 * scale)
                 )
-
-
-def draw_scene(image, persons, faces, visitor):
-    """A copy of `image` with plain boxes, the visitor's in green - for the TV."""
-    out = image.copy()
-    scale = out.shape[0] / 1080
-    for i, box in enumerate(persons):
-        colour = SELECTED if i == visitor.person else OTHER
-        _box(out, box, colour, round((6 if i == visitor.person else 3) * scale))
-    if visitor.face is not None:
-        _box(out, faces[visitor.face], SELECTED, round(6 * scale))
-    return out
 
 
 def draw_debug(image, persons, faces, labels, visitor, status, axis_x, axis_falloff):

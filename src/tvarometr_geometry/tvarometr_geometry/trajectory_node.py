@@ -62,6 +62,10 @@ class TrajectoryNode(Node):
         """The three lines the generator expects: age, gender, mood."""
         gender = GENDER_CS.get(attributes.gender, attributes.gender)
         emotion = EMOTION_CS.get(attributes.emotion, attributes.emotion)
+        if attributes.gender == "female" and emotion.endswith("ý"):
+            # The moods above are hard adjectives: masculine -ý, feminine -á.
+            # "neutrální" is soft and reads the same for either.
+            emotion = emotion[:-1] + "á"
         return f"{attributes.age}\n{gender}\n{emotion}"
 
     def to_pose_array(self, points) -> PoseArray:

@@ -12,6 +12,7 @@ cd "$(dirname "$(readlink -f "$0")")"
 
 COMPOSE=(docker compose -f docker-compose.yml)
 ORCHESTRATOR=tvarometr_orchestrator_prod
+INFERENCE=tvarometr_inference_prod
 CONTAINERS=(tvarometr_orchestrator_prod tvarometr_inference_prod abb_rws2_ros2_driver_prod)
 
 case "${1:-}" in
@@ -104,6 +105,10 @@ Start the tree, which wants a keyboard of its own:
 
 S starts a run, C repeats a failed search or erases the board, E aborts and Q
 acknowledges it. Groot2 connects to localhost:1667.
+
+See who the models picked out as the visitor, and why:
+
+  docker exec -it -u $(id -u) -e HOME=/tmp -e FASTDDS_BUILTIN_TRANSPORTS=UDPv4 $INFERENCE /entrypoint.sh ros2 run rqt_image_view rqt_image_view /inference_node/debug_image/compressed
 
   ${COMPOSE[*]} logs -f inference   what the camera and the models are doing
   ./start.sh --stop              put it all down
