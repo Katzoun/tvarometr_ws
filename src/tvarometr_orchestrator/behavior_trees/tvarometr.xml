@@ -69,6 +69,10 @@
                              motion_command="MoveJ" speed="300"
                              tool="tool0" wobj="wobj0"/>
 
+                <!-- The arm has just stopped in front of the visitor. A moment
+                     before the first look lets it settle and them turn to it. -->
+                <Sleep msec="1500"/>
+
                 <!-- Frame the visitor, then analyse them. If either fails: back to
                      the photo pose and wait - C tries both again, E aborts. -->
                 <RetryUntilSuccessful num_attempts="-1">
