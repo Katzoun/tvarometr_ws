@@ -23,6 +23,7 @@
 
   <!-- robot_control_msgs comes from the driver repo via `vcs import`. -->
   <depend>robot_control_msgs</depend>
+  <depend>std_srvs</depend>
   <depend>tvarometr_interfaces</depend>
 
   <test_depend>ament_lint_auto</test_depend>

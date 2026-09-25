@@ -25,6 +25,7 @@
 #include "tvarometr_orchestrator/operator_input.hpp"
 #include "tvarometr_orchestrator/robot_request.hpp"
 #include "tvarometr_orchestrator/run_inference.hpp"
+#include "tvarometr_orchestrator/show_scene.hpp"
 
 namespace
 {
@@ -83,6 +84,8 @@ int main(int argc, char ** argv)
   // Server names live here, so the XML stays about behaviour.
   BT::RosNodeParams inference_params(node, "/inference_node/run_inference");
   factory.registerNodeType<tvarometr_orchestrator::RunInference>("RunInference", inference_params);
+  BT::RosNodeParams scene_params(node, "/inference_node/show_scene");
+  factory.registerNodeType<tvarometr_orchestrator::ShowScene>("ShowScene", scene_params);
 
   // Only acceptance is timed; the scan itself reports through feedback.
   BT::RosNodeParams centring_params(node, "/centring_node/centre_face");

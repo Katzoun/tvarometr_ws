@@ -22,6 +22,7 @@ find_package(lifecycle_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(robot_control_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(tvarometr_interfaces REQUIRED)
 
 add_executable(orchestrator_node
@@ -37,6 +38,7 @@ add_executable(orchestrator_node
   src/orchestrator_node.cpp
   src/robot_request.cpp
   src/run_inference.cpp
+  src/show_scene.cpp
 )
 target_include_directories(orchestrator_node PRIVATE include)
 ament_target_dependencies(orchestrator_node
@@ -48,6 +50,7 @@ ament_target_dependencies(orchestrator_node
   rclcpp
   rclcpp_action
   robot_control_msgs
+  std_srvs
   tvarometr_interfaces
 )
 

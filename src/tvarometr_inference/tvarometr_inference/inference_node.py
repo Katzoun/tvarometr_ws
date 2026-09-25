@@ -22,6 +22,7 @@ from rclpy.lifecycle import State, TransitionCallbackReturn
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
 from sensor_msgs.msg import CompressedImage
+from std_srvs.srv import SetBool
 
 # MiVOLO is vendored as-is and imports itself absolutely.
 sys.path.insert(0, str(Path(__file__).parent / "vendor"))
@@ -195,6 +196,11 @@ class InferenceNode(LifecycleNode):
         # The same selection without labels, for the TV beside the robot.
         self.scene_publisher = self.create_publisher(
             CompressedImage, f"{self.NODE_NAME}/scene_image/compressed", 1
+        )
+        # The tree shows the TV the scene only while the visitor is being framed.
+        self._show_scene = False
+        self.show_scene_service = self.create_service(
+            SetBool, f"{self.NODE_NAME}/show_scene", self.show_scene_cb
         )
 
         self._models: Models | None = None
@@ -496,6 +502,17 @@ class InferenceNode(LifecycleNode):
 
     # ============= SERVICE =============
 
+    def show_scene_cb(self, request, response) -> SetBool.Response:
+        """Turns the TV's view on or off; off leaves it black, not the last frame."""
+        self._show_scene = request.data
+        latest = self._latest
+        if not request.data and latest is not None:
+            black = np.zeros((latest.height, latest.width, 3), np.uint8)
+            self._publish_jpeg(self.scene_publisher, black, CompressedImage().header)
+        response.success = True
+        response.message = "scene shown" if request.data else "scene hidden"
+        return response
+
     def detect_cb(self, request, response) -> DetectFace.Response:
         """Where the visitor is, from the loop's latest result.
 
@@ -664,7 +681,9 @@ class InferenceNode(LifecycleNode):
         The same drawing either way. The TV's copy stops at what decided the
         choice; age, gender and mood belong to the debug view alone.
         """
-        scene_watched = self.scene_publisher.get_subscription_count() > 0
+        scene_watched = (
+            self._show_scene and self.scene_publisher.get_subscription_count() > 0
+        )
         debug_watched = self.debug_publisher.get_subscription_count() > 0
         if not scene_watched and not debug_watched:
             return
