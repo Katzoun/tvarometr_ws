@@ -118,13 +118,13 @@
                 <!-- Labels once; the flag is set only after they are down. -->
                 <Precondition if="!board_written" else="SUCCESS">
                   <Sequence name="write_labels">
-                    <ExecutePath name="DrawLabels" path="{labels}" speed="150"
+                    <ExecutePath name="DrawLabels" path="{labels}" speed="200"
                                  tool="tool_draw" wobj="draw_wobj"/>
                     <Script code="board_written = true"/>
                   </Sequence>
                 </Precondition>
 
-                <ExecutePath name="DrawValues" path="{values}" speed="150"
+                <ExecutePath name="DrawValues" path="{values}" speed="200"
                              tool="tool_draw" wobj="draw_wobj"/>
 
                 <!-- Off the board before the wrist turns for the eraser. -->
@@ -138,7 +138,7 @@
                  tool="tool_erase" wobj="draw_wobj"/>
 
                 <!-- Same flange as the pen; tool_erase still uses the pen's tooldata. -->
-                <ExecutePath name="EraseValues" path="{erase}" speed="150"
+                <ExecutePath name="EraseValues" path="{erase}" speed="200"
                              tool="tool_erase" wobj="draw_wobj"/>
 
                 <!-- And off the board again. -->
